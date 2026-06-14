@@ -95,6 +95,7 @@ pub fn run() {
             settings::get_app_info,
             settings::get_first_launch_settings,
             settings::open_data_directory,
+            settings::open_log_directory,
             settings::update_baidu_ak,
             settings::update_default_city,
             projects::create_project,

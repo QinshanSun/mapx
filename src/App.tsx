@@ -35,7 +35,7 @@ import {
   softDeleteProject,
   validateProjectName,
 } from "@/services/project-service";
-import { getFirstLaunchSettings } from "@/services/settings-service";
+import { getFirstLaunchSettings, openLogDirectory } from "@/services/settings-service";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { BootstrapStatus } from "@/types/bootstrap";
 import type { MarkerRecord } from "@/types/marker";
@@ -741,7 +741,19 @@ function App() {
             ) : null}
 
             <div className="relative min-w-0 flex-1 overflow-hidden">
-              <MapCanvas baiduAk={firstLaunchSettings.baiduAk} settings={projectWorkspace.settings} />
+              <MapCanvas
+                baiduAk={firstLaunchSettings.baiduAk}
+                settings={projectWorkspace.settings}
+                onOpenSettings={() =>
+                  runWithMarkerDirtyGuard({
+                    message: "打开设置前，当前点位还有未保存的修改。",
+                    run: () => runWorkspaceAction("view.settings", "button"),
+                  })
+                }
+                onOpenLogDirectory={() =>
+                  openLogDirectory().catch((error) => setProjectActionError(getBackendErrorMessage(error)))
+                }
+              />
             </div>
           </div>
         </section>

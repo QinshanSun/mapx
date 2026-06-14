@@ -83,6 +83,14 @@ export function openDataDirectory() {
   return callCommand<void>("open_data_directory");
 }
 
+export function openLogDirectory() {
+  if (!isTauri()) {
+    return Promise.resolve<void>(undefined);
+  }
+
+  return callCommand<void>("open_log_directory");
+}
+
 export function buildCompleteFirstLaunchInput(
   values: FirstLaunchFormValues,
   options: { skipBaiduAk?: boolean } = {},

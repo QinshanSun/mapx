@@ -1,7 +1,8 @@
-use std::{path::PathBuf, process::Command};
+use std::{fs, path::PathBuf, process::Command};
 
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
+use tauri::Manager;
 
 use crate::{
     cities::{validate_city_name, DEFAULT_CITY},
@@ -114,6 +115,14 @@ pub fn open_data_directory(state: tauri::State<'_, AppRuntimeState>) -> Result<(
     let data_directory = data_directory_from_database_path(&database_path)?;
 
     open_path(&data_directory)
+}
+
+#[tauri::command]
+pub fn open_log_directory(app: tauri::AppHandle) -> Result<(), AppError> {
+    let log_directory = app.path().app_log_dir().map_err(|_| AppError::db())?;
+
+    fs::create_dir_all(&log_directory).map_err(|_| AppError::db())?;
+    open_path(&log_directory)
 }
 
 async fn save_first_launch_settings(
