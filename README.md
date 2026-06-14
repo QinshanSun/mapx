@@ -11,13 +11,16 @@ See the V1 product and technical specification:
 
 ## Current Status
 
-The repository has the initial Tauri + React + TypeScript scaffold for `FND-001`.
+The repository has the initial M1 foundation through `FND-004`.
 
 Implemented foundation:
 
 - Tauri desktop shell with app name `MapX` and bundle identifier `com.qinshan.mapx`
 - React + TypeScript frontend powered by Vite
 - Placeholder MapX desktop icon
+- Tailwind CSS, shadcn/ui component conventions, and lucide-react icons
+- Three-column light workspace shell with map/detail placeholders
+- Zustand store structure plus `stores/`, `services/`, and `types/` frontend boundaries
 - Basic scripts for development, typechecking, frontend build, and Tauri build
 
 Last verified locally:
@@ -26,17 +29,17 @@ Last verified locally:
 - `npm run build`
 - `npm run tauri:build`
 - `npm run tauri:dev`
+- `npm audit --omit=dev`
 
 ## Recommended Next Steps
 
 Work should continue from the M1 Foundation milestone in [docs/features-v1.md](docs/features-v1.md):
 
-1. `FND-002`: finalize MapX metadata and placeholder icon configuration.
-2. `FND-003`: add the frontend UI foundation, including the app shell layout and base styling approach.
-3. `FND-004`: establish frontend state and service structure without adding feature logic yet.
-4. `QA-001`: add frontend lint, typecheck, and test harness so later slices have a stable quality gate.
-5. `MAP-001` and `MAP-006`: run the Baidu Maps WebView/origin and allowlist spikes early to reduce integration risk.
-6. `DATA-001`: start SQLite migration and connection bootstrap once the foundation is stable.
+1. `QA-001`: add frontend lint and test harness; this should include the first store logic test for the Zustand example.
+2. `MAP-001` and `MAP-006`: run the Baidu Maps WebView/origin and allowlist spikes early to reduce integration risk.
+3. `FND-005`: add the minimal desktop menu and shortcut dispatch shell.
+4. `DATA-001`: start SQLite migration and connection bootstrap once the foundation is stable.
+5. `DATA-003`: establish structured backend error conventions before business commands grow.
 
 ## Development
 
