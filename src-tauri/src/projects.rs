@@ -60,6 +60,13 @@ pub struct RenameProjectRequest {
     pub name: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoftDeleteProjectRequest {
+    pub project_id: String,
+    pub current_project_id: Option<String>,
+}
+
 #[tauri::command]
 pub async fn get_project_workspace(
     state: tauri::State<'_, AppRuntimeState>,
@@ -104,6 +111,23 @@ pub async fn rename_project(
 
     update_project_name(&pool, &request.project_id, &request.name).await?;
     load_project_workspace(&pool, &default_city, Some(request.project_id.as_str())).await
+}
+
+#[tauri::command]
+pub async fn soft_delete_project(
+    state: tauri::State<'_, AppRuntimeState>,
+    request: SoftDeleteProjectRequest,
+) -> Result<ProjectWorkspace, AppError> {
+    let pool = state.pool.clone().ok_or_else(AppError::db)?;
+    let default_city = load_default_city(&pool).await?;
+
+    delete_project(&pool, &request.project_id).await?;
+    let next_project_id = request
+        .current_project_id
+        .as_deref()
+        .filter(|current_project_id| *current_project_id != request.project_id);
+
+    load_project_workspace(&pool, &default_city, next_project_id).await
 }
 
 pub async fn ensure_default_project(pool: &SqlitePool, default_city: &str) -> Result<(), AppError> {
@@ -262,6 +286,24 @@ async fn update_project_name(
     .map_err(AppError::from)?;
 
     load_project_by_id(pool, project_id).await
+}
+
+async fn delete_project(pool: &SqlitePool, project_id: &str) -> Result<(), AppError> {
+    ensure_active_project(pool, project_id).await?;
+
+    sqlx::query(
+        "UPDATE projects
+         SET deleted_at = datetime('now'),
+             updated_at = datetime('now')
+         WHERE id = ?
+           AND deleted_at IS NULL",
+    )
+    .bind(project_id)
+    .execute(pool)
+    .await
+    .map_err(AppError::from)?;
+
+    Ok(())
 }
 
 async fn ensure_settings_for_first_project(
@@ -606,6 +648,82 @@ mod tests {
             .expect_err("empty project name should fail");
 
         assert_eq!(error.message, "名称不能为空。");
+    }
+
+    #[tokio::test]
+    async fn soft_delete_project_hides_it_and_keeps_record() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        let first_project = insert_project_with_settings(&pool, "项目一", "上海")
+            .await
+            .expect("first project should be created");
+        let second_project = insert_project_with_settings(&pool, "项目二", "上海")
+            .await
+            .expect("second project should be created");
+
+        delete_project(&pool, &first_project.id)
+            .await
+            .expect("project should soft delete");
+
+        let workspace = load_project_workspace(&pool, "上海", Some(second_project.id.as_str()))
+            .await
+            .expect("workspace should load");
+        let deleted_at: Option<String> =
+            sqlx::query_scalar("SELECT deleted_at FROM projects WHERE id = ?")
+                .bind(first_project.id)
+                .fetch_one(&pool)
+                .await
+                .expect("deleted project should remain in database");
+
+        assert_eq!(workspace.projects.len(), 1);
+        assert_eq!(workspace.current_project.id, second_project.id);
+        assert_eq!(workspace.projects[0].name, "项目二");
+        assert!(deleted_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn workspace_falls_back_after_current_project_is_deleted() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        let first_project = insert_project_with_settings(&pool, "项目一", "上海")
+            .await
+            .expect("first project should be created");
+        let second_project = insert_project_with_settings(&pool, "项目二", "上海")
+            .await
+            .expect("second project should be created");
+
+        delete_project(&pool, &first_project.id)
+            .await
+            .expect("current project should soft delete");
+        let workspace = load_project_workspace(&pool, "上海", Some(first_project.id.as_str()))
+            .await
+            .expect("workspace should load");
+
+        assert_eq!(workspace.projects.len(), 1);
+        assert_eq!(workspace.current_project.id, second_project.id);
+    }
+
+    #[tokio::test]
+    async fn workspace_creates_default_after_last_project_is_deleted() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        let project = insert_project_with_settings(&pool, "唯一项目", "上海")
+            .await
+            .expect("project should be created");
+
+        delete_project(&pool, &project.id)
+            .await
+            .expect("last project should soft delete");
+        let workspace = load_project_workspace(&pool, "上海", Some(project.id.as_str()))
+            .await
+            .expect("workspace should load");
+        let deleted_at: Option<String> =
+            sqlx::query_scalar("SELECT deleted_at FROM projects WHERE id = ?")
+                .bind(project.id)
+                .fetch_one(&pool)
+                .await
+                .expect("deleted project should remain in database");
+
+        assert_eq!(workspace.projects.len(), 1);
+        assert_eq!(workspace.current_project.name, "我的项目");
+        assert!(deleted_at.is_some());
     }
 
     async fn create_test_pool() -> (tempfile::TempDir, SqlitePool) {

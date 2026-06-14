@@ -9,6 +9,7 @@ import {
   Search,
   Settings,
   Star,
+  Trash2,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -25,7 +26,14 @@ import { useWorkspaceActionEvents } from "@/hooks/use-workspace-action-events";
 import { getBackendErrorMessage } from "@/services/backend-error";
 import { getBootstrapStatus } from "@/services/bootstrap-service";
 import { resolveDirtyGuardChoice, type DirtyGuardChoice } from "@/services/dirty-guard";
-import { createProject, getProjectWorkspace, renameProject, selectProject, validateProjectName } from "@/services/project-service";
+import {
+  createProject,
+  getProjectWorkspace,
+  renameProject,
+  selectProject,
+  softDeleteProject,
+  validateProjectName,
+} from "@/services/project-service";
 import { getFirstLaunchSettings } from "@/services/settings-service";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { BootstrapStatus } from "@/types/bootstrap";
@@ -74,13 +82,16 @@ function App() {
   const [newProjectName, setNewProjectName] = useState("");
   const [isProjectRenameOpen, setIsProjectRenameOpen] = useState(false);
   const [projectRenameName, setProjectRenameName] = useState("");
+  const [pendingDeleteProjectId, setPendingDeleteProjectId] = useState<string | null>(null);
   const [projectActionError, setProjectActionError] = useState<string | null>(null);
   const [selectedMarkerRecord, setSelectedMarkerRecord] = useState<MarkerRecord | null>(null);
   const [markerListRefreshKey, setMarkerListRefreshKey] = useState(0);
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | null>(null);
   const [isProjectSaving, setIsProjectSaving] = useState(false);
   const [isProjectRenaming, setIsProjectRenaming] = useState(false);
+  const [isProjectDeleting, setIsProjectDeleting] = useState(false);
   const [firstLaunchError, setFirstLaunchError] = useState<string | null>(null);
+  const pendingDeleteProject = projectWorkspace?.projects.find((project) => project.id === pendingDeleteProjectId) ?? null;
   const markerDirtyHandlersRef = useRef<MarkerDirtyHandlers | null>(null);
   const pendingDirtyActionRef = useRef<PendingDirtyAction | null>(null);
   const handleSettingsError = useCallback((error: unknown) => {
@@ -262,6 +273,7 @@ function App() {
   const openProjectCreateForm = useCallback(() => {
     setIsProjectCreateOpen(true);
     setIsProjectRenameOpen(false);
+    setPendingDeleteProjectId(null);
     setProjectActionError(null);
     setActivePanel("overview");
   }, [setActivePanel]);
@@ -273,9 +285,25 @@ function App() {
 
     setIsProjectRenameOpen(true);
     setIsProjectCreateOpen(false);
+    setPendingDeleteProjectId(null);
     setProjectRenameName(projectWorkspace.currentProject.name);
     setProjectActionError(null);
   }, [projectWorkspace]);
+
+  const openProjectDeleteConfirm = useCallback(
+    (projectId: string) => {
+      runWithMarkerDirtyGuard({
+        message: "删除项目前，当前点位还有未保存的修改。",
+        run: () => {
+          setPendingDeleteProjectId(projectId);
+          setIsProjectCreateOpen(false);
+          setIsProjectRenameOpen(false);
+          setProjectActionError(null);
+        },
+      });
+    },
+    [runWithMarkerDirtyGuard],
+  );
 
   const runWorkspaceAction = useCallback(
     (actionId: WorkspaceActionId, source: WorkspaceActionSource) => {
@@ -344,6 +372,7 @@ function App() {
               selectMarker(null);
               setIsProjectRenameOpen(false);
               setProjectRenameName("");
+              setPendingDeleteProjectId(null);
               setActivePanel("overview");
               setProjectActionError(null);
             })
@@ -372,6 +401,7 @@ function App() {
           selectMarker(null);
           setNewProjectName("");
           setIsProjectCreateOpen(false);
+          setPendingDeleteProjectId(null);
           setProjectActionError(null);
           setActivePanel("overview");
         })
@@ -402,6 +432,7 @@ function App() {
           setProjectWorkspace(workspace);
           setProjectRenameName(workspace.currentProject.name);
           setIsProjectRenameOpen(false);
+          setPendingDeleteProjectId(null);
           setProjectActionError(null);
         })
         .catch((error) => setProjectActionError(getBackendErrorMessage(error)))
@@ -409,6 +440,32 @@ function App() {
     },
     [projectRenameName, projectWorkspace],
   );
+
+  const handleProjectDeleteConfirmed = useCallback(() => {
+    if (!projectWorkspace || !pendingDeleteProject) {
+      return;
+    }
+
+    const isDeletingCurrentProject = pendingDeleteProject.id === projectWorkspace.currentProject.id;
+
+    setIsProjectDeleting(true);
+    softDeleteProject(pendingDeleteProject.id, projectWorkspace)
+      .then((workspace) => {
+        setProjectWorkspace(workspace);
+        setPendingDeleteProjectId(null);
+        setProjectActionError(null);
+
+        if (isDeletingCurrentProject) {
+          setSelectedMarkerRecord(null);
+          selectMarker(null);
+          setIsProjectRenameOpen(false);
+          setProjectRenameName("");
+          setActivePanel("overview");
+        }
+      })
+      .catch((error) => setProjectActionError(getBackendErrorMessage(error)))
+      .finally(() => setIsProjectDeleting(false));
+  }, [pendingDeleteProject, projectWorkspace, selectMarker, setActivePanel]);
 
   const handlePanelSelect = useCallback(
     (panel: WorkspacePanel) => {
@@ -552,11 +609,22 @@ function App() {
                   >
                     <span className="block truncate">{project.name}</span>
                   </button>
-                  {isCurrent ? (
-                    <Button type="button" size="icon" variant="ghost" aria-label={`重命名项目 ${project.name}`} onClick={openProjectRenameForm}>
-                      <Pencil />
+                  <div className="flex shrink-0 gap-1 pr-1">
+                    {isCurrent ? (
+                      <Button type="button" size="icon" variant="ghost" aria-label={`重命名项目 ${project.name}`} onClick={openProjectRenameForm}>
+                        <Pencil />
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`删除项目 ${project.name}`}
+                      onClick={() => openProjectDeleteConfirm(project.id)}
+                    >
+                      <Trash2 />
                     </Button>
-                  ) : null}
+                  </div>
                 </div>
               );
             })}
@@ -813,6 +881,47 @@ function App() {
                 onClick={() => void handleDirtyPromptChoice("cancel")}
               >
                 取消
+              </Button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+      {pendingDeleteProject ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/35 p-6">
+          <section className="w-full max-w-md rounded-lg border border-red-200 bg-white p-5 shadow-lg" role="dialog" aria-modal="true">
+            <h2 className="text-base font-semibold text-red-700">确认删除“{pendingDeleteProject.name}”？</h2>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              项目会从切换器隐藏，本地 SQLite 记录会保留并写入删除时间。
+            </p>
+            {pendingDeleteProject.id === projectWorkspace.currentProject.id ? (
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                删除当前项目后，MapX 会切换到下一个可用项目；如果没有其他项目，会创建新的默认项目。
+              </p>
+            ) : null}
+            {projectActionError ? <p className="mt-3 text-sm leading-6 text-red-600">{projectActionError}</p> : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isProjectDeleting}
+                onClick={() => {
+                  setPendingDeleteProjectId(null);
+                  setProjectActionError(null);
+                }}
+              >
+                <X />
+                取消
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="bg-red-600 text-white hover:bg-red-700"
+                disabled={isProjectDeleting}
+                onClick={handleProjectDeleteConfirmed}
+              >
+                <Trash2 />
+                删除项目
               </Button>
             </div>
           </section>

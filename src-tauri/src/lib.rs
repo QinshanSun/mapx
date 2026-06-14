@@ -101,6 +101,7 @@ pub fn run() {
             projects::get_project_workspace,
             projects::rename_project,
             projects::select_project_workspace,
+            projects::soft_delete_project,
             markers::create_marker,
             markers::list_project_markers,
             markers::soft_delete_marker,

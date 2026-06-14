@@ -48,6 +48,26 @@ export function renameProject(projectId: string, name: string, currentWorkspace:
   return callCommand<ProjectWorkspace>("rename_project", { request: { projectId, name } });
 }
 
+export function softDeleteProject(projectId: string, currentWorkspace: ProjectWorkspace) {
+  if (!isTauri()) {
+    const projects = currentWorkspace.projects.filter((project) => project.id !== projectId);
+    const currentProject =
+      currentWorkspace.currentProject.id === projectId
+        ? projects[0] ?? buildPreviewProjectWorkspace(DEFAULT_CITY).currentProject
+        : currentWorkspace.currentProject;
+
+    return Promise.resolve({
+      ...currentWorkspace,
+      projects: projects.length > 0 ? projects : [currentProject],
+      currentProject,
+    });
+  }
+
+  return callCommand<ProjectWorkspace>("soft_delete_project", {
+    request: { projectId, currentProjectId: currentWorkspace.currentProject.id },
+  });
+}
+
 export function selectProject(projectId: string, currentWorkspace: ProjectWorkspace) {
   if (!isTauri()) {
     const currentProject = currentWorkspace.projects.find((project) => project.id === projectId);

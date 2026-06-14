@@ -11,7 +11,7 @@ See the V1 product and technical specification:
 
 ## Current Status
 
-The repository has the initial M1 foundation, the local data core through `DATA-004`, settings work through `SET-003`, project workspace work through `PROJ-003`, taxonomy defaults and category management through `TAX-003`, tag management through `TAX-004`, and marker management through `MRK-005`.
+The repository has the initial M1 foundation, the local data core through `DATA-004`, settings work through `SET-003`, project workspace work through `PROJ-004`, taxonomy defaults and category management through `TAX-003`, tag management through `TAX-004`, and marker management through `MRK-005`.
 
 Implemented foundation:
 
@@ -34,6 +34,7 @@ Implemented foundation:
 - Default project auto-creation for `我的项目` with city-based search city, map center, zoom, and `normal` map layer
 - Current project workspace loading, project switcher, and project creation flow
 - Current project rename command and sidebar rename UI
+- Project soft delete with confirmation, switcher hiding, retained SQLite records, and current-project fallback
 - Default categories for new projects: `客户`、`门店`、`仓库`、`竞品`、`候选点`
 - Project category list/create/edit commands and settings-page category management UI
 - Project category soft delete with confirmation, affected-marker count, and automatic marker uncategorizing
@@ -65,9 +66,9 @@ Note: the full default `npm run tauri:build` currently builds the release binary
 
 Work should continue from the M2 Local Workspace milestone in [docs/features-v1.md](docs/features-v1.md):
 
-1. `PROJ-004`: support project soft delete.
-2. `MAP-001`: spike Baidu AK origin and WebView behavior.
-3. `MAP-006`: spike minimal Baidu CSP and domain allowlist.
+1. `MAP-001`: spike Baidu AK origin and WebView behavior.
+2. `MAP-006`: spike minimal Baidu CSP and domain allowlist.
+3. `MAP-002`: implement dynamic Baidu Maps script loader.
 
 ## Development
 

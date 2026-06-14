@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { buildPreviewProjectWorkspace, renameProject, selectProject, validateProjectName } from "@/services/project-service";
+import {
+  buildPreviewProjectWorkspace,
+  renameProject,
+  selectProject,
+  softDeleteProject,
+  validateProjectName,
+} from "@/services/project-service";
 
 describe("project service", () => {
   it("builds a preview default project from the selected city", () => {
@@ -38,5 +44,13 @@ describe("project service", () => {
     expect(validateProjectName("   ")).toBe("项目名称不能为空。");
     expect(nextWorkspace.currentProject.name).toBe("新名称");
     expect(nextWorkspace.projects[0].name).toBe("新名称");
+  });
+
+  it("previews project soft delete and falls back when deleting current project", async () => {
+    const workspace = buildPreviewProjectWorkspace("上海", "客户项目", buildPreviewProjectWorkspace("上海"));
+    const nextWorkspace = await softDeleteProject("preview-project-2", workspace);
+
+    expect(nextWorkspace.projects.map((project) => project.name)).toEqual(["我的项目"]);
+    expect(nextWorkspace.currentProject.name).toBe("我的项目");
   });
 });
