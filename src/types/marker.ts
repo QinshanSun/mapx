@@ -9,6 +9,7 @@ export interface MarkerRecord {
   coordinateSystem: "BD09";
   address: string | null;
   categoryId: string | null;
+  tagIds: string[];
   note: string | null;
   source: MarkerSource;
   createdAt: string;

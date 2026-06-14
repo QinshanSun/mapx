@@ -23,6 +23,7 @@ pub struct MarkerRecord {
     pub coordinate_system: String,
     pub address: Option<String>,
     pub category_id: Option<String>,
+    pub tag_ids: Vec<String>,
     pub note: Option<String>,
     pub source: String,
     pub created_at: String,
@@ -127,7 +128,14 @@ pub async fn list_markers(
     .await
     .map_err(AppError::from)?;
 
-    rows.into_iter().map(marker_from_row).collect()
+    let mut markers = Vec::with_capacity(rows.len());
+    for row in rows {
+        let mut marker = marker_from_row(row)?;
+        marker.tag_ids = load_marker_tag_ids(pool, &marker.id).await?;
+        markers.push(marker);
+    }
+
+    Ok(markers)
 }
 
 pub async fn insert_marker(
@@ -255,7 +263,24 @@ async fn load_marker_by_id(
     .await
     .map_err(AppError::from)?;
 
-    marker_from_row(row)
+    let mut marker = marker_from_row(row)?;
+    marker.tag_ids = load_marker_tag_ids(pool, &marker.id).await?;
+
+    Ok(marker)
+}
+
+async fn load_marker_tag_ids(pool: &SqlitePool, marker_id: &str) -> Result<Vec<String>, AppError> {
+    sqlx::query_scalar(
+        "SELECT tag_id
+         FROM marker_tags
+         WHERE marker_id = ?
+           AND deleted_at IS NULL
+         ORDER BY created_at ASC, tag_id ASC",
+    )
+    .bind(marker_id)
+    .fetch_all(pool)
+    .await
+    .map_err(AppError::from)
 }
 
 async fn validate_optional_category(
@@ -322,6 +347,7 @@ fn marker_from_row(row: sqlx::sqlite::SqliteRow) -> Result<MarkerRecord, AppErro
         category_id: row
             .try_get::<Option<String>, _>("category_id")
             .map_err(AppError::from)?,
+        tag_ids: Vec::new(),
         note: row
             .try_get::<Option<String>, _>("note")
             .map_err(AppError::from)?,

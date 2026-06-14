@@ -1,6 +1,7 @@
-use sqlx::SqlitePool;
+use serde::{Deserialize, Serialize};
+use sqlx::{Row, SqlitePool};
 
-use crate::errors::AppError;
+use crate::{db::AppRuntimeState, errors::AppError, validation::ensure_active_project};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DefaultCategory {
@@ -8,6 +9,25 @@ pub struct DefaultCategory {
     pub color: &'static str,
     pub icon: &'static str,
     pub sort_order: i64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CategoryRecord {
+    pub id: String,
+    pub project_id: String,
+    pub name: String,
+    pub color: String,
+    pub icon: String,
+    pub sort_order: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListCategoriesRequest {
+    pub project_id: String,
 }
 
 pub const LUCIDE_CATEGORY_ICON_ALLOWLIST: &[&str] =
@@ -57,6 +77,37 @@ pub async fn create_default_categories_for_project(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn list_project_categories(
+    state: tauri::State<'_, AppRuntimeState>,
+    request: ListCategoriesRequest,
+) -> Result<Vec<CategoryRecord>, AppError> {
+    let pool = state.pool.clone().ok_or_else(AppError::db)?;
+
+    list_categories(&pool, &request.project_id).await
+}
+
+pub async fn list_categories(
+    pool: &SqlitePool,
+    project_id: &str,
+) -> Result<Vec<CategoryRecord>, AppError> {
+    ensure_active_project(pool, project_id).await?;
+
+    let rows = sqlx::query(
+        "SELECT id, project_id, name, color, icon, sort_order, created_at, updated_at
+         FROM categories
+         WHERE project_id = ?
+           AND deleted_at IS NULL
+         ORDER BY sort_order ASC, name ASC",
+    )
+    .bind(project_id)
+    .fetch_all(pool)
+    .await
+    .map_err(AppError::from)?;
+
+    rows.into_iter().map(category_from_row).collect()
+}
+
 pub fn is_allowed_category_icon(icon: &str) -> bool {
     LUCIDE_CATEGORY_ICON_ALLOWLIST.contains(&icon)
 }
@@ -100,6 +151,27 @@ async fn new_sqlite_uuid(pool: &SqlitePool) -> Result<String, AppError> {
     .fetch_one(pool)
     .await
     .map_err(AppError::from)
+}
+
+fn category_from_row(row: sqlx::sqlite::SqliteRow) -> Result<CategoryRecord, AppError> {
+    Ok(CategoryRecord {
+        id: row.try_get::<String, _>("id").map_err(AppError::from)?,
+        project_id: row
+            .try_get::<String, _>("project_id")
+            .map_err(AppError::from)?,
+        name: row.try_get::<String, _>("name").map_err(AppError::from)?,
+        color: row.try_get::<String, _>("color").map_err(AppError::from)?,
+        icon: row.try_get::<String, _>("icon").map_err(AppError::from)?,
+        sort_order: row
+            .try_get::<i64, _>("sort_order")
+            .map_err(AppError::from)?,
+        created_at: row
+            .try_get::<String, _>("created_at")
+            .map_err(AppError::from)?,
+        updated_at: row
+            .try_get::<String, _>("updated_at")
+            .map_err(AppError::from)?,
+    })
 }
 
 #[cfg(test)]
