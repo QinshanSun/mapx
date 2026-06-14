@@ -5,6 +5,7 @@ import { CategoryManagementPanel } from "@/components/category-management-panel"
 import { TagManagementPanel } from "@/components/tag-management-panel";
 import { Button } from "@/components/ui/button";
 import { CHINA_CITIES, normalizeCityName } from "@/data/china-cities";
+import { buildBaiduAkOriginGuidance } from "@/services/map-runtime";
 import { getAppInfo, openDataDirectory, updateBaiduAk, updateDefaultCity } from "@/services/settings-service";
 import type { AppInfo, FirstLaunchSettings } from "@/types/settings";
 
@@ -23,6 +24,7 @@ export function SettingsPanel({ settings, currentProjectId, onChange, onError }:
   const [isCitySaving, setIsCitySaving] = useState(false);
   const [isAkSaving, setIsAkSaving] = useState(false);
   const [isOpeningDataDirectory, setIsOpeningDataDirectory] = useState(false);
+  const originGuidance = buildBaiduAkOriginGuidance();
   const currentCity = CHINA_CITIES.find((city) => city.name === selectedCity) ?? CHINA_CITIES[0];
   const hasChanges = selectedCity !== normalizeCityName(settings.defaultCity);
   const hasAkChanges = akDraft.trim() !== (settings.baiduAk ?? "");
@@ -140,6 +142,13 @@ export function SettingsPanel({ settings, currentProjectId, onChange, onError }:
             />
           </div>
         </label>
+
+        <div className="mt-3 space-y-2 rounded-md bg-slate-50 p-3 text-xs leading-5 text-muted-foreground">
+          <p className="break-all">当前运行来源：{originGuidance.currentOrigin}</p>
+          <p className="break-all">开发白名单：{originGuidance.devOrigins.join("、")}</p>
+          <p className="break-all">打包白名单参考：{originGuidance.packagedOrigins.join("、")}</p>
+          <p>地图无法加载时，请检查{originGuidance.failureChecks.join("、")}。</p>
+        </div>
 
         <div className="mt-4 flex justify-end gap-2">
           <Button
