@@ -60,7 +60,7 @@ export const useWorkspaceStore = create<WorkspaceState>(createWorkspaceState);
 function buildActionMessage(actionId: WorkspaceActionId, selectedMarkerId: string | null) {
   switch (actionId) {
     case "project.new":
-      return "新建项目入口已收到，后续项目管理 issue 会接入真实创建流程。";
+      return "已打开新建项目表单。";
     case "search.focus":
       return "搜索入口已收到，后续搜索 issue 会接入本地和百度 POI 搜索。";
     case "changes.save":

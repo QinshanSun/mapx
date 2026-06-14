@@ -15,17 +15,55 @@ export function getProjectWorkspace() {
   return callCommand<ProjectWorkspace>("get_project_workspace");
 }
 
-export function buildPreviewProjectWorkspace(defaultCity: string): ProjectWorkspace {
+export function createProject(name: string, currentWorkspace: ProjectWorkspace | null) {
+  if (!isTauri()) {
+    return Promise.resolve(buildPreviewProjectWorkspace(DEFAULT_CITY, name, currentWorkspace));
+  }
+
+  return callCommand<ProjectWorkspace>("create_project", { request: { name } });
+}
+
+export function selectProject(projectId: string, currentWorkspace: ProjectWorkspace) {
+  if (!isTauri()) {
+    const currentProject = currentWorkspace.projects.find((project) => project.id === projectId);
+
+    return Promise.resolve(
+      currentProject
+        ? {
+            ...currentWorkspace,
+            currentProject,
+          }
+        : currentWorkspace,
+    );
+  }
+
+  return callCommand<ProjectWorkspace>("select_project_workspace", { request: { projectId } });
+}
+
+export function buildPreviewProjectWorkspace(
+  defaultCity: string,
+  newProjectName?: string,
+  currentWorkspace?: ProjectWorkspace | null,
+): ProjectWorkspace {
   const city = CHINA_CITIES.find((item) => item.name === defaultCity) ?? CHINA_CITIES[0];
-  const currentProject = {
+  const baseProject = {
     id: "preview-project",
     name: "我的项目",
     createdAt: previewNow,
     updatedAt: previewNow,
   };
+  const projects = currentWorkspace?.projects ?? [baseProject];
+  const currentProject = newProjectName
+    ? {
+        id: `preview-project-${projects.length + 1}`,
+        name: newProjectName.trim(),
+        createdAt: previewNow,
+        updatedAt: previewNow,
+      }
+    : currentWorkspace?.currentProject ?? baseProject;
 
   return {
-    projects: [currentProject],
+    projects: newProjectName ? [...projects, currentProject] : projects,
     currentProject,
     settings: {
       searchCity: city.name,

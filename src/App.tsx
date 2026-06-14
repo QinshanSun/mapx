@@ -2,12 +2,14 @@ import {
   CircleHelp,
   FolderOpen,
   MapPinned,
+  Plus,
   Search,
   Settings,
   Star,
+  X,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { FirstLaunchFlow } from "@/components/first-launch-flow";
 import { SettingsPanel } from "@/components/settings-panel";
@@ -15,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { useWorkspaceActionEvents } from "@/hooks/use-workspace-action-events";
 import { getBackendErrorMessage } from "@/services/backend-error";
 import { getBootstrapStatus } from "@/services/bootstrap-service";
-import { getProjectWorkspace } from "@/services/project-service";
+import { createProject, getProjectWorkspace, selectProject } from "@/services/project-service";
 import { getFirstLaunchSettings } from "@/services/settings-service";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { BootstrapStatus } from "@/types/bootstrap";
@@ -64,6 +66,10 @@ function App() {
   const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapStatus | null>(null);
   const [firstLaunchSettings, setFirstLaunchSettings] = useState<FirstLaunchSettings | null>(null);
   const [projectWorkspace, setProjectWorkspace] = useState<ProjectWorkspace | null>(null);
+  const [isProjectCreateOpen, setIsProjectCreateOpen] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [projectActionError, setProjectActionError] = useState<string | null>(null);
+  const [isProjectSaving, setIsProjectSaving] = useState(false);
   const [firstLaunchError, setFirstLaunchError] = useState<string | null>(null);
   const handleSettingsError = useCallback((error: unknown) => {
     setFirstLaunchError(getBackendErrorMessage(error));
@@ -141,10 +147,72 @@ function App() {
     };
   }, [firstLaunchSettings]);
 
-  useWorkspaceActionEvents();
-
   const { activePanel, dispatchAction, lastActionNotice, selectedMarkerId, setActivePanel, selectMarker } =
     useWorkspaceStore();
+
+  const openProjectCreateForm = useCallback(() => {
+    setIsProjectCreateOpen(true);
+    setProjectActionError(null);
+    setActivePanel("overview");
+  }, [setActivePanel]);
+
+  const handleWorkspaceAction = useCallback((actionId: string) => {
+    if (actionId === "project.new") {
+      openProjectCreateForm();
+    }
+  }, [openProjectCreateForm]);
+
+  useWorkspaceActionEvents(handleWorkspaceAction);
+
+  const openProjectCreate = useCallback(
+    (source: "button" | "menu" | "shortcut") => {
+      openProjectCreateForm();
+      dispatchAction("project.new", source);
+    },
+    [dispatchAction, openProjectCreateForm],
+  );
+
+  const handleProjectSelect = useCallback(
+    (projectId: string) => {
+      if (!projectWorkspace || projectWorkspace.currentProject.id === projectId) {
+        return;
+      }
+
+      selectProject(projectId, projectWorkspace)
+        .then((workspace) => {
+          setProjectWorkspace(workspace);
+          setActivePanel("overview");
+          setProjectActionError(null);
+        })
+        .catch((error) => setProjectActionError(getBackendErrorMessage(error)));
+    },
+    [projectWorkspace, setActivePanel],
+  );
+
+  const handleProjectCreate = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const name = newProjectName.trim();
+
+      if (!name) {
+        setProjectActionError("项目名称不能为空。");
+        return;
+      }
+
+      setIsProjectSaving(true);
+      createProject(name, projectWorkspace)
+        .then((workspace) => {
+          setProjectWorkspace(workspace);
+          setNewProjectName("");
+          setIsProjectCreateOpen(false);
+          setProjectActionError(null);
+          setActivePanel("overview");
+        })
+        .catch((error) => setProjectActionError(getBackendErrorMessage(error)))
+        .finally(() => setIsProjectSaving(false));
+    },
+    [newProjectName, projectWorkspace, setActivePanel],
+  );
 
   if (!bootstrapStatus) {
     return <BootstrapGate title="正在初始化本地数据库" message="MapX 正在准备本地 SQLite 工作区。" />;
@@ -208,6 +276,69 @@ function App() {
           </div>
         </div>
 
+        <section className="border-b border-border p-4" aria-label="项目切换器">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <p className="text-xs font-medium text-muted-foreground">项目</p>
+            <Button type="button" size="icon" variant="ghost" onClick={() => openProjectCreate("button")}>
+              <Plus />
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            {projectWorkspace.projects.map((project) => {
+              const isCurrent = project.id === projectWorkspace.currentProject.id;
+
+              return (
+                <button
+                  key={project.id}
+                  type="button"
+                  className={`w-full rounded-md border px-3 py-2 text-left text-sm font-medium transition ${
+                    isCurrent
+                      ? "border-primary/30 bg-primary/5 text-primary"
+                      : "border-border text-foreground hover:border-primary/40 hover:bg-accent"
+                  }`}
+                  onClick={() => handleProjectSelect(project.id)}
+                >
+                  {project.name}
+                </button>
+              );
+            })}
+          </div>
+
+          {isProjectCreateOpen ? (
+            <form className="mt-3 space-y-2" onSubmit={handleProjectCreate}>
+              <input
+                className="h-9 w-full rounded-md border border-input bg-white px-3 text-sm outline-none transition placeholder:text-muted-foreground focus:border-primary"
+                value={newProjectName}
+                onChange={(event) => setNewProjectName(event.target.value)}
+                placeholder="新项目名称"
+              />
+              <div className="flex gap-2">
+                <Button type="submit" size="sm" className="flex-1" disabled={isProjectSaving}>
+                  <Plus />
+                  保存
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    setIsProjectCreateOpen(false);
+                    setNewProjectName("");
+                    setProjectActionError(null);
+                  }}
+                >
+                  <X />
+                  取消
+                </Button>
+              </div>
+            </form>
+          ) : null}
+
+          {projectActionError ? <p className="mt-2 text-xs leading-5 text-red-600">{projectActionError}</p> : null}
+        </section>
+
         <nav className="flex flex-1 flex-col gap-1 p-3" aria-label="主导航">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -227,20 +358,6 @@ function App() {
             );
           })}
         </nav>
-
-        <section className="border-t border-border p-4" aria-label="项目列表">
-          <p className="mb-2 text-xs font-medium text-muted-foreground">项目列表</p>
-          <div className="space-y-2">
-            {projectWorkspace.projects.map((project) => (
-              <div
-                key={project.id}
-                className="w-full rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-left text-sm font-medium text-primary"
-              >
-                {project.name}
-              </div>
-            ))}
-          </div>
-        </section>
 
         <div className="border-t border-border p-4 text-xs leading-5 text-muted-foreground">
           <p>默认城市：{firstLaunchSettings.defaultCity}</p>
@@ -262,7 +379,7 @@ function App() {
                 <Search />
                 搜索
               </Button>
-              <Button size="sm" onClick={() => dispatchAction("project.new", "button")}>
+              <Button size="sm" onClick={() => openProjectCreate("button")}>
                 <FolderOpen />
                 新建项目
               </Button>

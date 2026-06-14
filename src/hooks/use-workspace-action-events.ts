@@ -1,12 +1,17 @@
 import { listen } from "@tauri-apps/api/event";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 
 import { getActionFromMenuPayload, getWorkspaceShortcutAction } from "@/actions/workspace-shortcuts";
 import { useWorkspaceStore } from "@/stores/workspace-store";
-import { WORKSPACE_MENU_EVENT } from "@/types/workspace-actions";
+import { WORKSPACE_MENU_EVENT, type WorkspaceActionId, type WorkspaceActionSource } from "@/types/workspace-actions";
 
-export function useWorkspaceActionEvents() {
+export function useWorkspaceActionEvents(onAction?: (actionId: WorkspaceActionId, source: WorkspaceActionSource) => void) {
   const dispatchAction = useWorkspaceStore((state) => state.dispatchAction);
+
+  const runAction = useCallback((actionId: WorkspaceActionId, source: WorkspaceActionSource) => {
+    dispatchAction(actionId, source);
+    onAction?.(actionId, source);
+  }, [dispatchAction, onAction]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -17,12 +22,12 @@ export function useWorkspaceActionEvents() {
       }
 
       event.preventDefault();
-      dispatchAction(actionId, "shortcut");
+      runAction(actionId, "shortcut");
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [dispatchAction]);
+  }, [runAction]);
 
   useEffect(() => {
     let isActive = true;
@@ -32,7 +37,7 @@ export function useWorkspaceActionEvents() {
       const actionId = getActionFromMenuPayload(event.payload);
 
       if (actionId) {
-        dispatchAction(actionId, "menu");
+        runAction(actionId, "menu");
       }
     }).then((cleanup) => {
       if (isActive) {
@@ -48,5 +53,5 @@ export function useWorkspaceActionEvents() {
       isActive = false;
       unlisten?.();
     };
-  }, [dispatchAction]);
+  }, [runAction]);
 }

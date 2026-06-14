@@ -1,10 +1,11 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 
 use crate::{
     cities::{city_center_for, default_city_center, validate_city_name, DEFAULT_CITY},
     db::AppRuntimeState,
     errors::AppError,
+    validation::{ensure_active_project, validate_required_name},
 };
 
 const DEFAULT_PROJECT_NAME: &str = "我的项目";
@@ -39,6 +40,18 @@ pub struct ProjectWorkspace {
     pub settings: ProjectMapSettings,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateProjectRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectProjectRequest {
+    pub project_id: String,
+}
+
 #[tauri::command]
 pub async fn get_project_workspace(
     state: tauri::State<'_, AppRuntimeState>,
@@ -46,7 +59,31 @@ pub async fn get_project_workspace(
     let pool = state.pool.clone().ok_or_else(AppError::db)?;
     let default_city = load_default_city(&pool).await?;
 
-    load_project_workspace(&pool, &default_city).await
+    load_project_workspace(&pool, &default_city, None).await
+}
+
+#[tauri::command]
+pub async fn create_project(
+    state: tauri::State<'_, AppRuntimeState>,
+    request: CreateProjectRequest,
+) -> Result<ProjectWorkspace, AppError> {
+    let pool = state.pool.clone().ok_or_else(AppError::db)?;
+    let default_city = load_default_city(&pool).await?;
+    let project = insert_project_with_settings(&pool, &request.name, &default_city).await?;
+
+    load_project_workspace(&pool, &default_city, Some(project.id.as_str())).await
+}
+
+#[tauri::command]
+pub async fn select_project_workspace(
+    state: tauri::State<'_, AppRuntimeState>,
+    request: SelectProjectRequest,
+) -> Result<ProjectWorkspace, AppError> {
+    let pool = state.pool.clone().ok_or_else(AppError::db)?;
+    let default_city = load_default_city(&pool).await?;
+
+    ensure_active_project(&pool, &request.project_id).await?;
+    load_project_workspace(&pool, &default_city, Some(request.project_id.as_str())).await
 }
 
 pub async fn ensure_default_project(pool: &SqlitePool, default_city: &str) -> Result<(), AppError> {
@@ -63,13 +100,19 @@ pub async fn ensure_default_project(pool: &SqlitePool, default_city: &str) -> Re
 async fn load_project_workspace(
     pool: &SqlitePool,
     default_city: &str,
+    selected_project_id: Option<&str>,
 ) -> Result<ProjectWorkspace, AppError> {
     ensure_default_project(pool, default_city).await?;
 
     let projects = load_active_projects(pool).await?;
-    let current_project = projects
-        .first()
-        .cloned()
+    let current_project = selected_project_id
+        .and_then(|project_id| {
+            projects
+                .iter()
+                .find(|project| project.id == project_id)
+                .cloned()
+        })
+        .or_else(|| projects.first().cloned())
         .ok_or_else(AppError::project_not_found)?;
     let settings = load_project_settings(pool, &current_project.id).await?;
 
@@ -128,16 +171,28 @@ async fn load_active_projects(pool: &SqlitePool) -> Result<Vec<ProjectSummary>, 
 }
 
 async fn insert_default_project(pool: &SqlitePool, default_city: &str) -> Result<(), AppError> {
+    insert_project_with_settings(pool, DEFAULT_PROJECT_NAME, default_city).await?;
+
+    Ok(())
+}
+
+async fn insert_project_with_settings(
+    pool: &SqlitePool,
+    name: &str,
+    default_city: &str,
+) -> Result<ProjectSummary, AppError> {
+    let name = validate_required_name(name)?;
+    let default_city = validate_city_name(default_city)?;
     let project_id = new_sqlite_uuid(pool).await?;
     let settings_id = new_sqlite_uuid(pool).await?;
-    let center = city_center_for(default_city).unwrap_or_else(default_city_center);
+    let center = city_center_for(&default_city).unwrap_or_else(default_city_center);
 
     sqlx::query(
         "INSERT INTO projects (id, name, created_at, updated_at, deleted_at)
          VALUES (?, ?, datetime('now'), datetime('now'), NULL)",
     )
     .bind(&project_id)
-    .bind(DEFAULT_PROJECT_NAME)
+    .bind(name)
     .execute(pool)
     .await
     .map_err(AppError::from)?;
@@ -150,8 +205,8 @@ async fn insert_default_project(pool: &SqlitePool, default_city: &str) -> Result
          VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), NULL)",
     )
     .bind(settings_id)
-    .bind(project_id)
-    .bind(default_city)
+    .bind(&project_id)
+    .bind(&default_city)
     .bind(DEFAULT_MAP_LAYER)
     .bind(center.lng)
     .bind(center.lat)
@@ -160,7 +215,7 @@ async fn insert_default_project(pool: &SqlitePool, default_city: &str) -> Result
     .await
     .map_err(AppError::from)?;
 
-    Ok(())
+    load_project_by_id(pool, &project_id).await
 }
 
 async fn ensure_settings_for_first_project(
@@ -252,6 +307,25 @@ async fn load_project_settings(
     })
 }
 
+async fn load_project_by_id(
+    pool: &SqlitePool,
+    project_id: &str,
+) -> Result<ProjectSummary, AppError> {
+    let row = sqlx::query(
+        "SELECT id, name, created_at, updated_at
+         FROM projects
+         WHERE id = ?
+           AND deleted_at IS NULL
+         LIMIT 1",
+    )
+    .bind(project_id)
+    .fetch_one(pool)
+    .await
+    .map_err(AppError::from)?;
+
+    project_from_row(row)
+}
+
 async fn new_sqlite_uuid(pool: &SqlitePool) -> Result<String, AppError> {
     sqlx::query_scalar(
         "SELECT lower(hex(randomblob(4))) || '-' ||
@@ -290,7 +364,7 @@ mod tests {
         ensure_default_project(&pool, "杭州")
             .await
             .expect("default project should be created");
-        let workspace = load_project_workspace(&pool, "杭州")
+        let workspace = load_project_workspace(&pool, "杭州", None)
             .await
             .expect("workspace should load");
 
@@ -327,6 +401,49 @@ mod tests {
 
         assert_eq!(project_count, 1);
         assert_eq!(settings_count, 1);
+    }
+
+    #[tokio::test]
+    async fn create_project_returns_new_project_as_current() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        ensure_default_project(&pool, "上海")
+            .await
+            .expect("default project should exist");
+
+        let project = insert_project_with_settings(&pool, "  客户项目  ", "上海")
+            .await
+            .expect("project should be created");
+        let workspace = load_project_workspace(&pool, "上海", Some(project.id.as_str()))
+            .await
+            .expect("workspace should load");
+
+        assert_eq!(workspace.projects.len(), 2);
+        assert_eq!(workspace.current_project.name, "客户项目");
+        assert_eq!(workspace.settings.search_city, "上海");
+        assert_eq!(workspace.settings.map_layer, "normal");
+    }
+
+    #[tokio::test]
+    async fn project_workspace_excludes_soft_deleted_projects() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        ensure_default_project(&pool, "上海")
+            .await
+            .expect("default project should exist");
+
+        sqlx::query(
+            "INSERT INTO projects (id, name, created_at, updated_at, deleted_at)
+             VALUES ('deleted-project', '已删除项目', datetime('now'), datetime('now'), datetime('now'))",
+        )
+        .execute(&pool)
+        .await
+        .expect("soft-deleted project should insert");
+
+        let workspace = load_project_workspace(&pool, "上海", None)
+            .await
+            .expect("workspace should load");
+
+        assert_eq!(workspace.projects.len(), 1);
+        assert_eq!(workspace.projects[0].name, "我的项目");
     }
 
     async fn create_test_pool() -> (tempfile::TempDir, SqlitePool) {
