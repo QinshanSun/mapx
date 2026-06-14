@@ -413,6 +413,7 @@ function App() {
           {activePanel === "settings" ? (
             <SettingsPanel
               settings={firstLaunchSettings}
+              currentProjectId={projectWorkspace.currentProject.id}
               onChange={setFirstLaunchSettings}
               onError={handleSettingsError}
             />

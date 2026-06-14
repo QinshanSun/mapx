@@ -1,6 +1,7 @@
 import { Check, FolderOpen, Info, KeyRound, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { TagManagementPanel } from "@/components/tag-management-panel";
 import { Button } from "@/components/ui/button";
 import { CHINA_CITIES, normalizeCityName } from "@/data/china-cities";
 import { getAppInfo, openDataDirectory, updateBaiduAk, updateDefaultCity } from "@/services/settings-service";
@@ -8,11 +9,12 @@ import type { AppInfo, FirstLaunchSettings } from "@/types/settings";
 
 interface SettingsPanelProps {
   settings: FirstLaunchSettings;
+  currentProjectId: string;
   onChange: (settings: FirstLaunchSettings) => void;
   onError: (error: unknown) => void;
 }
 
-export function SettingsPanel({ settings, onChange, onError }: SettingsPanelProps) {
+export function SettingsPanel({ settings, currentProjectId, onChange, onError }: SettingsPanelProps) {
   const citySelectRef = useRef<HTMLSelectElement>(null);
   const [selectedCity, setSelectedCity] = useState(normalizeCityName(settings.defaultCity));
   const [akDraft, setAkDraft] = useState(settings.baiduAk ?? "");
@@ -176,6 +178,8 @@ export function SettingsPanel({ settings, onChange, onError }: SettingsPanelProp
           </Button>
         </div>
       </section>
+
+      <TagManagementPanel projectId={currentProjectId} onError={onError} />
 
       <section className="rounded-lg border border-border p-4">
         <div className="mb-3 flex items-center justify-between">

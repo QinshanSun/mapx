@@ -4,6 +4,7 @@ mod errors;
 mod markers;
 mod projects;
 mod settings;
+mod tags;
 mod taxonomy;
 #[allow(dead_code)]
 mod validation;
@@ -103,6 +104,10 @@ pub fn run() {
             markers::list_project_markers,
             markers::soft_delete_marker,
             markers::update_marker,
+            tags::create_tag,
+            tags::list_project_tags,
+            tags::soft_delete_tag,
+            tags::update_tag,
             health_check,
             get_bootstrap_status,
             structured_error_example
