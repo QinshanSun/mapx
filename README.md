@@ -11,7 +11,7 @@ See the V1 product and technical specification:
 
 ## Current Status
 
-The repository has the initial M1 foundation through `FND-004`.
+The repository has the initial M1 foundation through `QA-001`.
 
 Implemented foundation:
 
@@ -21,11 +21,13 @@ Implemented foundation:
 - Tailwind CSS, shadcn/ui component conventions, and lucide-react icons
 - Three-column light workspace shell with map/detail placeholders
 - Zustand store structure plus `stores/`, `services/`, and `types/` frontend boundaries
-- Basic scripts for development, typechecking, frontend build, and Tauri build
+- Basic scripts for development, typechecking, linting, frontend tests, frontend build, and Tauri build
 
 Last verified locally:
 
 - `npm run typecheck`
+- `npm run lint`
+- `npm run test`
 - `npm run build`
 - `npm run tauri:build`
 - `npm run tauri:dev`
@@ -35,11 +37,10 @@ Last verified locally:
 
 Work should continue from the M1 Foundation milestone in [docs/features-v1.md](docs/features-v1.md):
 
-1. `QA-001`: add frontend lint and test harness; this should include the first store logic test for the Zustand example.
-2. `MAP-001` and `MAP-006`: run the Baidu Maps WebView/origin and allowlist spikes early to reduce integration risk.
-3. `FND-005`: add the minimal desktop menu and shortcut dispatch shell.
-4. `DATA-001`: start SQLite migration and connection bootstrap once the foundation is stable.
-5. `DATA-003`: establish structured backend error conventions before business commands grow.
+1. `MAP-001` and `MAP-006`: run the Baidu Maps WebView/origin and allowlist spikes early to reduce integration risk.
+2. `FND-005`: add the minimal desktop menu and shortcut dispatch shell.
+3. `DATA-001`: start SQLite migration and connection bootstrap once the foundation is stable.
+4. `DATA-003`: establish structured backend error conventions before business commands grow.
 
 ## Development
 
@@ -73,10 +74,12 @@ Run the Tauri desktop app in development:
 npm run tauri:dev
 ```
 
-Typecheck and build the frontend:
+Check and build the frontend:
 
 ```sh
 npm run typecheck
+npm run lint
+npm run test
 npm run build
 ```
 
