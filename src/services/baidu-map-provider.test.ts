@@ -99,6 +99,54 @@ describe("baidu map provider", () => {
     expect(fake.instances[0].setMapType).toHaveBeenLastCalledWith("normal-map-type");
     expect(provider.getLayer()).toBe("normal");
   });
+
+  it("renders project markers with category style as Baidu overlays", async () => {
+    const fake = createFakeApi();
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+    provider.setMarkers([
+      { id: "marker-1", name: "客户点位", lng: 121.47, lat: 31.23, color: "#2563eb", icon: "Users" },
+      { id: "marker-2", name: "仓库点位", lng: 121.48, lat: 31.24, color: "#f59e0b", icon: "Warehouse" },
+    ]);
+
+    expect(fake.instances[0].addOverlay).toHaveBeenCalledTimes(2);
+    expect(fake.markers).toHaveLength(2);
+    expect(fake.markers[0].point).toEqual({ lng: 121.47, lat: 31.23 });
+    expect(fake.markers[0].setTitle).toHaveBeenCalledWith("客户点位");
+    expect(fake.icons[0].url).toContain(encodeURIComponent("#2563eb"));
+
+    provider.setMarkers([{ id: "marker-3", name: "门店点位", lng: 121.49, lat: 31.25, color: "#16a34a", icon: "Store" }]);
+
+    expect(fake.instances[0].removeOverlay).toHaveBeenCalledTimes(2);
+    expect(fake.instances[0].addOverlay).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps one thousand marker rendering inside the provider boundary", async () => {
+    const fake = createFakeApi();
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+    provider.setMarkers(
+      Array.from({ length: 1000 }, (_, index) => ({
+        id: `marker-${index}`,
+        name: `测试点位 ${index}`,
+        lng: 121.35 + (index % 20) * 0.01,
+        lat: 31.1 + Math.floor(index / 20) * 0.004,
+        color: "#2563eb",
+        icon: "Users",
+      })),
+    );
+
+    expect(fake.instances[0].addOverlay).toHaveBeenCalledTimes(1000);
+    expect(fake.icons).toHaveLength(1);
+  });
 });
 
 function createContainer() {
@@ -109,17 +157,37 @@ function createContainer() {
 
 function createFakeApi() {
   const instances: FakeMap[] = [];
+  const icons: FakeIcon[] = [];
+  const markers: FakeMarker[] = [];
   const api = {
+    Icon: class extends FakeIcon {
+      constructor(url: string, size: unknown, options?: unknown) {
+        super(url, size, options);
+        icons.push(this);
+      }
+    },
     Map: class extends FakeMap {
       constructor(container: HTMLElement) {
         super(container);
         instances.push(this);
       }
     },
+    Marker: class extends FakeMarker {
+      constructor(point: { lng: number; lat: number }, options?: { icon?: unknown }) {
+        super(point, options);
+        markers.push(this);
+      }
+    },
     Point: class {
       constructor(
         readonly lng: number,
         readonly lat: number,
+      ) {}
+    },
+    Size: class {
+      constructor(
+        readonly width: number,
+        readonly height: number,
       ) {}
     },
   };
@@ -131,14 +199,18 @@ function createFakeApi() {
       normalMapType: "normal-map-type",
       satelliteMapType: "satellite-map-type",
     },
+    icons,
     instances,
+    markers,
   };
 }
 
 class FakeMap {
   private center = { lng: 0, lat: 0 };
   private zoom = 0;
+  readonly addOverlay = vi.fn();
   readonly destroy = vi.fn();
+  readonly removeOverlay = vi.fn();
   readonly setMapType = vi.fn();
   readonly centerAndZoom = vi.fn((point: { lng: number; lat: number }, zoom: number) => {
     this.center = { lng: point.lng, lat: point.lat };
@@ -154,4 +226,21 @@ class FakeMap {
   getZoom() {
     return this.zoom;
   }
+}
+
+class FakeIcon {
+  constructor(
+    readonly url: string,
+    readonly size: unknown,
+    readonly options?: unknown,
+  ) {}
+}
+
+class FakeMarker {
+  readonly setTitle = vi.fn();
+
+  constructor(
+    readonly point: { lng: number; lat: number },
+    readonly options?: { icon?: unknown },
+  ) {}
 }

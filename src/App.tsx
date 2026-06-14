@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { FirstLaunchFlow } from "@/components/first-launch-flow";
 import { MapCanvas } from "@/components/map-canvas";
@@ -29,6 +29,7 @@ import { useWorkspaceActionEvents } from "@/hooks/use-workspace-action-events";
 import { getBackendErrorMessage } from "@/services/backend-error";
 import { getBootstrapStatus } from "@/services/bootstrap-service";
 import { resolveDirtyGuardChoice, type DirtyGuardChoice } from "@/services/dirty-guard";
+import { buildMapMarkerItems } from "@/services/map-marker-render";
 import {
   createProject,
   getProjectWorkspace,
@@ -41,6 +42,7 @@ import {
 import { getFirstLaunchSettings, openLogDirectory } from "@/services/settings-service";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { BootstrapStatus } from "@/types/bootstrap";
+import type { CategoryRecord } from "@/types/category";
 import type { MarkerRecord } from "@/types/marker";
 import type { MapLayer, ProjectWorkspace } from "@/types/project";
 import type { FirstLaunchSettings } from "@/types/settings";
@@ -89,6 +91,8 @@ function App() {
   const [pendingDeleteProjectId, setPendingDeleteProjectId] = useState<string | null>(null);
   const [projectActionError, setProjectActionError] = useState<string | null>(null);
   const [selectedMarkerRecord, setSelectedMarkerRecord] = useState<MarkerRecord | null>(null);
+  const [filteredMarkerRecords, setFilteredMarkerRecords] = useState<MarkerRecord[]>([]);
+  const [markerCategories, setMarkerCategories] = useState<CategoryRecord[]>([]);
   const [markerListRefreshKey, setMarkerListRefreshKey] = useState(0);
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | null>(null);
   const [isProjectSaving, setIsProjectSaving] = useState(false);
@@ -99,6 +103,10 @@ function App() {
   const pendingDeleteProject = projectWorkspace?.projects.find((project) => project.id === pendingDeleteProjectId) ?? null;
   const markerDirtyHandlersRef = useRef<MarkerDirtyHandlers | null>(null);
   const pendingDirtyActionRef = useRef<PendingDirtyAction | null>(null);
+  const mapMarkers = useMemo(
+    () => buildMapMarkerItems(filteredMarkerRecords, markerCategories),
+    [filteredMarkerRecords, markerCategories],
+  );
   const handleSettingsError = useCallback((error: unknown) => {
     setFirstLaunchError(getBackendErrorMessage(error));
   }, []);
@@ -202,6 +210,16 @@ function App() {
   const handleMarkerDirtyHandlersChange = useCallback((handlers: MarkerDirtyHandlers | null) => {
     markerDirtyHandlersRef.current = handlers;
   }, []);
+
+  const handleFilteredMarkersChange = useCallback((markers: MarkerRecord[], categories: CategoryRecord[]) => {
+    setFilteredMarkerRecords(markers);
+    setMarkerCategories(categories);
+  }, []);
+
+  useEffect(() => {
+    setFilteredMarkerRecords([]);
+    setMarkerCategories([]);
+  }, [projectWorkspace?.currentProject.id]);
 
   const handleDirtyPromptChoice = useCallback(
     async (choice: DirtyGuardChoice) => {
@@ -788,6 +806,7 @@ function App() {
                     },
                   });
                 }}
+                onFilteredMarkersChange={handleFilteredMarkersChange}
                 onError={(error) => setProjectActionError(getBackendErrorMessage(error))}
               />
             ) : null}
@@ -796,6 +815,7 @@ function App() {
               <MapCanvas
                 baiduAk={firstLaunchSettings.baiduAk}
                 settings={projectWorkspace.settings}
+                markers={mapMarkers}
                 onOpenSettings={() =>
                   runWithMarkerDirtyGuard({
                     message: "打开设置前，当前点位还有未保存的修改。",

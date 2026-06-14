@@ -1,5 +1,14 @@
 import type { MapLayer } from "@/types/project";
 
+export interface MapMarkerItem {
+  id: string;
+  name: string;
+  lng: number;
+  lat: number;
+  color: string;
+  icon: string;
+}
+
 export interface MapViewState {
   center: {
     lng: number;
@@ -15,4 +24,5 @@ export interface MapProvider {
   getView(): MapViewState | null;
   setLayer(layer: MapLayer): void;
   getLayer(): MapLayer;
+  setMarkers(markers: MapMarkerItem[]): void;
 }

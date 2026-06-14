@@ -18,10 +18,18 @@ interface MarkerListPanelProps {
   selectedMarkerId: string | null;
   refreshKey: number;
   onSelectMarker: (marker: MarkerRecord) => void;
+  onFilteredMarkersChange: (markers: MarkerRecord[], categories: CategoryRecord[]) => void;
   onError: (error: unknown) => void;
 }
 
-export function MarkerListPanel({ projectId, selectedMarkerId, refreshKey, onSelectMarker, onError }: MarkerListPanelProps) {
+export function MarkerListPanel({
+  projectId,
+  selectedMarkerId,
+  refreshKey,
+  onSelectMarker,
+  onFilteredMarkersChange,
+  onError,
+}: MarkerListPanelProps) {
   const [markers, setMarkers] = useState<MarkerRecord[]>([]);
   const [categories, setCategories] = useState<CategoryRecord[]>([]);
   const [tags, setTags] = useState<TagRecord[]>([]);
@@ -57,6 +65,10 @@ export function MarkerListPanel({ projectId, selectedMarkerId, refreshKey, onSel
       isActive = false;
     };
   }, [onError, projectId, refreshKey]);
+
+  useEffect(() => {
+    onFilteredMarkersChange(filteredMarkers, categories);
+  }, [categories, filteredMarkers, onFilteredMarkersChange]);
 
   function updateFilter(nextFilters: Partial<MarkerListFilters>) {
     setFilters((currentFilters) => ({ ...currentFilters, ...nextFilters }));

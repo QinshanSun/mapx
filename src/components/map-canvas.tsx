@@ -4,7 +4,7 @@ import { FolderOpen, RotateCcw, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createBaiduMapProvider } from "@/services/baidu-map-provider";
 import { resolveMapCanvasOverlay, type MapCanvasActionId } from "@/services/map-canvas-state";
-import type { MapProvider } from "@/services/map-provider";
+import type { MapMarkerItem, MapProvider } from "@/services/map-provider";
 import type { ProjectMapSettings } from "@/types/project";
 
 interface MapLoadResult {
@@ -16,11 +16,12 @@ interface MapLoadResult {
 interface MapCanvasProps {
   baiduAk: string | null;
   settings: ProjectMapSettings;
+  markers: MapMarkerItem[];
   onOpenSettings: () => void;
   onOpenLogDirectory: () => void | Promise<void>;
 }
 
-export function MapCanvas({ baiduAk, settings, onOpenSettings, onOpenLogDirectory }: MapCanvasProps) {
+export function MapCanvas({ baiduAk, settings, markers, onOpenSettings, onOpenLogDirectory }: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const providerRef = useRef<MapProvider | null>(null);
   const [loadResult, setLoadResult] = useState<MapLoadResult | null>(null);
@@ -99,6 +100,10 @@ export function MapCanvas({ baiduAk, settings, onOpenSettings, onOpenLogDirector
   useEffect(() => {
     providerRef.current?.setLayer(settings.mapLayer);
   }, [settings.mapLayer]);
+
+  useEffect(() => {
+    providerRef.current?.setMarkers(markers);
+  }, [markers]);
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-slate-100">
