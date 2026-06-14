@@ -10,6 +10,7 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "spike:baidu-domains": "node tools/capture-baidu-map-domains.mjs",
     "lint": "eslint src --max-warnings=0",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

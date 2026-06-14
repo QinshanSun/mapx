@@ -2,7 +2,7 @@
 
 Related issues: `MAP-001`, `MAP-006`
 
-Status: `MAP-001` spike outcome recorded. `MAP-006` still needs real request-domain capture before it can close.
+Status: `MAP-001` spike outcome recorded. `MAP-006` has browser/headless request-domain evidence, a real-AK tightened-CSP smoke, and a non-wildcard CSP draft. A Tauri WebView smoke is still recommended before enabling the final production CSP in `tauri.conf.json`.
 
 ## Current Evidence
 
@@ -11,7 +11,9 @@ Status: `MAP-001` spike outcome recorded. `MAP-006` still needs real request-dom
 - Tauri 2 source documents that packaged app assets use `tauri://localhost` on macOS and `http://tauri.localhost` or `https://tauri.localhost` on Windows/Android depending on HTTPS scheme handling.
 - MapX now exposes the current runtime origin and Baidu AK allowlist hints in the settings page via `src/services/map-runtime.ts` and `src/components/settings-panel.tsx`.
 - macOS Tauri dev smoke on 2026-06-14 launched `npm run tauri:dev`; the WebView accessibility tree reported `URL: tauri://localhost` while the Vite dev server was serving `http://localhost:1420`.
-- A real Baidu Maps AK was not available in this session, so live map loading remains an explicit external validation risk.
+- Chrome headless network logs on 2026-06-14 loaded a minimal Baidu WebGL map page with a real browser AK, centered the map on Shanghai, and observed Baidu runtime requests to `api.map.baidu.com`, `dlswbr.baidu.com`, `reports.baidu.com`, `webmap0.bdimg.com`, and `apimaponline0-3.bdimg.com`.
+- A second Chrome headless smoke used a tightened page-level CSP containing only those Baidu hosts for external script/style/img/connect sources. The map rendered successfully under that CSP, the screenshot showed the Shanghai base map, and the netlog had zero CSP violation/refusal matches. Chrome headless did not exit cleanly after the map render loop, so the process was killed after the screenshot/netlog were written.
+- `npm run spike:baidu-domains` now captures the Baidu loader, `getscript`, and `bmap.css` resources without printing the AK value. Set `BAIDU_MAP_AK` for a real capture; otherwise it uses a placeholder AK and should be treated as loader/static-resource evidence only.
 
 ## Runtime Origin Working Assumption
 
@@ -55,17 +57,48 @@ Future map unavailable UI should keep the same failure causes, but present them 
 
 This is intentionally thinner than `MAP-002`: it does not load the Baidu Maps script or create `BMapGL.Map` objects.
 
-## Minimal Domain Allowlist Candidate
+## Minimal Domain Allowlist Recommendation
 
-This list is not final. It is a starting candidate for `MAP-006`; it must be replaced or confirmed by network-panel evidence from a real Baidu Maps load.
+The production default should use explicit hosts and should not use wildcard domains such as `*.bdimg.com` or `*.baidu.com`.
 
-| Resource type | Candidate domains | Notes |
+Observed on 2026-06-14 from Chrome headless netlogs for a minimal Baidu WebGL map page using a redacted real browser AK and centered on Shanghai:
+
+| Resource type | Required domains | Evidence |
 | --- | --- | --- |
-| script | `api.map.baidu.com` | JS API loader entry point |
-| script/connect/img/style | `*.bdimg.com` | Map tiles and static assets are often served from Baidu image/CDN domains; avoid this wildcard as production default until real requests are captured |
-| connect | `api.map.baidu.com` | Geocoding/search endpoints may share API host or use additional service hosts |
+| script | `api.map.baidu.com`, `dlswbr.baidu.com` | Initial JS API loader, `getscript`, `getmodules`, and Baidu security script `heicha/mw/abclite-2063-s.js` |
+| style | `api.map.baidu.com` | `res/webgl/10/bmap.css` |
+| img | `api.map.baidu.com`, `webmap0.bdimg.com`, `apimaponline0.bdimg.com`, `apimaponline1.bdimg.com`, `apimaponline2.bdimg.com`, `apimaponline3.bdimg.com` | Logo/blank assets and normal map tile requests |
+| connect | `api.map.baidu.com`, `reports.baidu.com` | Baidu API runtime requests and Baidu CSP report endpoint `csp-report/map-web` |
 
-Production default should not use broad wildcard domains. `MAP-006` must capture actual `script`, `connect`, `img`, and `style` requests from WebView before locking CSP/network allowlist.
+Draft CSP shape for future Tauri hardening:
+
+```text
+default-src 'self';
+script-src 'self' https://api.map.baidu.com https://dlswbr.baidu.com;
+style-src 'self' 'unsafe-inline' https://api.map.baidu.com;
+img-src 'self' data: https://api.map.baidu.com https://webmap0.bdimg.com https://apimaponline0.bdimg.com https://apimaponline1.bdimg.com https://apimaponline2.bdimg.com https://apimaponline3.bdimg.com;
+connect-src 'self' https://api.map.baidu.com https://reports.baidu.com;
+```
+
+When this is moved into `src-tauri/tauri.conf.json`, keep Tauri's required local IPC/app protocol sources in the final CSP. This spike intentionally does not change `tauri.conf.json` yet because the app has not implemented the dynamic Baidu loader (`MAP-002`) and a real AK/Tauri WebView run is still needed.
+
+## Reproduction Notes
+
+Static loader/domain capture:
+
+```bash
+npm run spike:baidu-domains
+```
+
+For a real-AK capture, load `BAIDU_MAP_AK` into the process environment before running the command. The script redacts the AK in output.
+
+Chrome headless netlog smoke used this page-level CSP with a redacted browser AK:
+
+```text
+default-src 'none'; script-src 'unsafe-inline' https://api.map.baidu.com https://dlswbr.baidu.com; style-src 'unsafe-inline' https://api.map.baidu.com; img-src data: https://api.map.baidu.com https://webmap0.bdimg.com https://apimaponline0.bdimg.com https://apimaponline1.bdimg.com https://apimaponline2.bdimg.com https://apimaponline3.bdimg.com; connect-src https://api.map.baidu.com https://reports.baidu.com;
+```
+
+The netlog was filtered to Baidu hosts only; Chrome's own background Google requests were ignored. Temporary HTML/netlog files that contained the AK were deleted after extracting the host list and validating the screenshot.
 
 ## MAP-001 Result
 
@@ -79,7 +112,7 @@ Production default should not use broad wildcard domains. `MAP-006` must capture
 
 ## Remaining Risks
 
-- A real Baidu Maps Open Platform AK is needed for a meaningful live map load test.
+- Tauri WebView should still run the same tightened-CSP smoke after `MAP-002` introduces the real app loader.
 - macOS packaged app must be tested with the production origin, not only Vite/browser dev.
 - Windows WebView2 origin and behavior still needs evidence from a Windows machine or a later Windows smoke artifact.
-- `MAP-006` needs captured request domains from a successful map load; this document only records candidates and risks.
+- Satellite layer, POI search, geocoding, and route planning may add domains later. Do not broaden V1 production CSP until those issues capture their own request evidence.

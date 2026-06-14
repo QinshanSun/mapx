@@ -11,7 +11,7 @@ See the V1 product and technical specification:
 
 ## Current Status
 
-The repository has the initial M1 foundation, the local data core through `DATA-004`, settings work through `SET-003`, project workspace work through `PROJ-004`, taxonomy defaults and category management through `TAX-003`, tag management through `TAX-004`, marker management through `MRK-005`, and map-origin spike work through `MAP-001`.
+The repository has the initial M1 foundation, the local data core through `DATA-004`, settings work through `SET-003`, project workspace work through `PROJ-004`, taxonomy defaults and category management through `TAX-003`, tag management through `TAX-004`, marker management through `MRK-005`, and map spike work through `MAP-001` and `MAP-006`.
 
 Implemented foundation:
 
@@ -33,6 +33,7 @@ Implemented foundation:
 - Settings page essentials for Baidu AK save/clear, app/data directory information, and opening the data directory
 - Settings-page Baidu AK origin guidance for dev and packaged runtime allowlists
 - Baidu Maps WebView origin spike notes in `docs/spikes/baidu-map-webview-origin.md`
+- Baidu Maps minimal domain allowlist spike with a real-AK tightened-CSP smoke and `npm run spike:baidu-domains`
 - Default project auto-creation for `我的项目` with city-based search city, map center, zoom, and `normal` map layer
 - Current project workspace loading, project switcher, and project creation flow
 - Current project rename command and sidebar rename UI
@@ -68,9 +69,9 @@ Note: the full default `npm run tauri:build` currently builds the release binary
 
 Work should continue from the map integration issues in [docs/features-v1.md](docs/features-v1.md):
 
-1. `MAP-006`: spike minimal Baidu CSP and domain allowlist.
-2. `MAP-002`: implement dynamic Baidu Maps script loader.
-3. `MAP-003`: add thin MapProvider abstraction and Baidu implementation.
+1. `MAP-002`: implement dynamic Baidu Maps script loader.
+2. `MAP-003`: add thin MapProvider abstraction and Baidu implementation.
+3. `MAP-004`: handle map unavailable states.
 
 ## Development
 
