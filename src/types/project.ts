@@ -1,3 +1,5 @@
+export type MapLayer = "normal" | "satellite";
+
 export interface ProjectSummary {
   id: string;
   name: string;
@@ -7,7 +9,7 @@ export interface ProjectSummary {
 
 export interface ProjectMapSettings {
   searchCity: string;
-  mapLayer: "normal" | "satellite";
+  mapLayer: MapLayer;
   mapCenterLng: number;
   mapCenterLat: number;
   mapZoom: number;

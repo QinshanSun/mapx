@@ -1,3 +1,5 @@
+import type { MapLayer } from "@/types/project";
+
 export interface MapViewState {
   center: {
     lng: number;
@@ -11,4 +13,6 @@ export interface MapProvider {
   destroy(): void;
   setView(view: MapViewState): void;
   getView(): MapViewState | null;
+  setLayer(layer: MapLayer): void;
+  getLayer(): MapLayer;
 }

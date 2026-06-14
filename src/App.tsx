@@ -2,12 +2,14 @@ import {
   CircleHelp,
   FolderOpen,
   Check,
+  Map as MapIcon,
   MapPinned,
   Pencil,
   Plus,
   RotateCcw,
   Search,
   Settings,
+  Satellite,
   Star,
   Trash2,
   X,
@@ -33,13 +35,14 @@ import {
   renameProject,
   selectProject,
   softDeleteProject,
+  updateProjectMapLayer,
   validateProjectName,
 } from "@/services/project-service";
 import { getFirstLaunchSettings, openLogDirectory } from "@/services/settings-service";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { BootstrapStatus } from "@/types/bootstrap";
 import type { MarkerRecord } from "@/types/marker";
-import type { ProjectWorkspace } from "@/types/project";
+import type { MapLayer, ProjectWorkspace } from "@/types/project";
 import type { FirstLaunchSettings } from "@/types/settings";
 import type { WorkspacePanel } from "@/types/workspace";
 import type { WorkspaceActionId, WorkspaceActionSource } from "@/types/workspace-actions";
@@ -91,6 +94,7 @@ function App() {
   const [isProjectSaving, setIsProjectSaving] = useState(false);
   const [isProjectRenaming, setIsProjectRenaming] = useState(false);
   const [isProjectDeleting, setIsProjectDeleting] = useState(false);
+  const [isMapLayerSaving, setIsMapLayerSaving] = useState(false);
   const [firstLaunchError, setFirstLaunchError] = useState<string | null>(null);
   const pendingDeleteProject = projectWorkspace?.projects.find((project) => project.id === pendingDeleteProjectId) ?? null;
   const markerDirtyHandlersRef = useRef<MarkerDirtyHandlers | null>(null);
@@ -468,6 +472,26 @@ function App() {
       .finally(() => setIsProjectDeleting(false));
   }, [pendingDeleteProject, projectWorkspace, selectMarker, setActivePanel]);
 
+  const handleMapLayerChange = useCallback(
+    (mapLayer: MapLayer) => {
+      if (!projectWorkspace || projectWorkspace.settings.mapLayer === mapLayer) {
+        return;
+      }
+
+      runWithMarkerDirtyGuard({
+        message: "切换地图图层前，当前点位还有未保存的修改。",
+        run: () => {
+          setIsMapLayerSaving(true);
+          updateProjectMapLayer(projectWorkspace.currentProject.id, mapLayer, projectWorkspace)
+            .then(setProjectWorkspace)
+            .catch((error) => setProjectActionError(getBackendErrorMessage(error)))
+            .finally(() => setIsMapLayerSaving(false));
+        },
+      });
+    },
+    [projectWorkspace, runWithMarkerDirtyGuard],
+  );
+
   const handlePanelSelect = useCallback(
     (panel: WorkspacePanel) => {
       if (activePanel === panel) {
@@ -701,6 +725,34 @@ function App() {
               <h2 className="text-base font-semibold">{projectWorkspace.currentProject.name}</h2>
             </div>
             <div className="flex items-center gap-2">
+              <div className="flex h-9 items-center rounded-md border border-input bg-white p-1" aria-label="地图图层">
+                <button
+                  type="button"
+                  className={`flex h-7 items-center gap-1 rounded px-2 text-xs font-medium transition ${
+                    projectWorkspace.settings.mapLayer === "normal"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  }`}
+                  disabled={isMapLayerSaving}
+                  onClick={() => handleMapLayerChange("normal")}
+                >
+                  <MapIcon className="size-3.5" />
+                  普通
+                </button>
+                <button
+                  type="button"
+                  className={`flex h-7 items-center gap-1 rounded px-2 text-xs font-medium transition ${
+                    projectWorkspace.settings.mapLayer === "satellite"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  }`}
+                  disabled={isMapLayerSaving}
+                  onClick={() => handleMapLayerChange("satellite")}
+                >
+                  <Satellite className="size-3.5" />
+                  卫星
+                </button>
+              </div>
               <Button
                 variant="outline"
                 size="sm"

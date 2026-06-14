@@ -103,6 +103,7 @@ pub fn run() {
             projects::rename_project,
             projects::select_project_workspace,
             projects::soft_delete_project,
+            projects::update_project_map_layer,
             markers::create_marker,
             markers::list_project_markers,
             markers::soft_delete_marker,

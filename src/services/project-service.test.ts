@@ -5,6 +5,7 @@ import {
   renameProject,
   selectProject,
   softDeleteProject,
+  updateProjectMapLayer,
   validateProjectName,
 } from "@/services/project-service";
 
@@ -35,6 +36,13 @@ describe("project service", () => {
     const nextWorkspace = await selectProject("preview-project", workspace);
 
     expect(nextWorkspace.currentProject.name).toBe("我的项目");
+  });
+
+  it("previews project map layer updates", async () => {
+    const workspace = buildPreviewProjectWorkspace("上海");
+    const nextWorkspace = await updateProjectMapLayer("preview-project", "satellite", workspace);
+
+    expect(nextWorkspace.settings.mapLayer).toBe("satellite");
   });
 
   it("validates and previews project rename", async () => {

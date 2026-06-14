@@ -96,6 +96,10 @@ export function MapCanvas({ baiduAk, settings, onOpenSettings, onOpenLogDirector
     };
   }, [ak, loadKey, view]);
 
+  useEffect(() => {
+    providerRef.current?.setLayer(settings.mapLayer);
+  }, [settings.mapLayer]);
+
   return (
     <div className="relative h-full w-full overflow-hidden bg-slate-100">
       <div ref={containerRef} className="absolute inset-0" aria-label="百度地图画布" />

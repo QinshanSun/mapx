@@ -1,5 +1,6 @@
 import { loadBaiduMapScript, type BaiduMapLoadResult } from "@/services/baidu-map-loader";
 import type { MapProvider, MapViewState } from "@/services/map-provider";
+import type { MapLayer } from "@/types/project";
 
 interface BaiduPoint {
   lng: number;
@@ -10,6 +11,7 @@ interface BaiduMapInstance {
   centerAndZoom(point: BaiduPoint, zoom: number): void;
   getCenter(): BaiduPoint;
   getZoom(): number;
+  setMapType?: (mapType: unknown) => void;
   destroy?: () => void;
 }
 
@@ -18,15 +20,22 @@ interface BaiduMapGlobal {
   Point: new (lng: number, lat: number) => BaiduPoint;
 }
 
+interface BaiduMapRuntime {
+  api: BaiduMapGlobal;
+  normalMapType?: unknown;
+  satelliteMapType?: unknown;
+}
+
 interface BaiduMapProviderOptions {
   loadScript?: typeof loadBaiduMapScript;
-  getGlobal?: () => BaiduMapGlobal | undefined;
+  getGlobal?: () => BaiduMapRuntime | undefined;
 }
 
 export class BaiduMapProvider implements MapProvider {
   private map: BaiduMapInstance | null = null;
   private container: HTMLElement | null = null;
   private isDestroyed = true;
+  private layer: MapLayer = "normal";
 
   constructor(
     private readonly baiduAk: string,
@@ -46,18 +55,19 @@ export class BaiduMapProvider implements MapProvider {
       throw new Error(loadResult.code ?? "BAIDU_MAP_LOAD_FAILED");
     }
 
-    const api = this.getApi();
+    const runtime = this.getRuntime();
     if (this.isDestroyed) {
       return;
     }
 
-    if (!api) {
+    if (!runtime) {
       throw new Error("BAIDU_MAP_LOAD_FAILED");
     }
 
     this.container = container;
-    this.map = new api.Map(container);
+    this.map = new runtime.api.Map(container);
     this.setView(view);
+    this.setLayer(this.layer);
   }
 
   destroy() {
@@ -76,12 +86,12 @@ export class BaiduMapProvider implements MapProvider {
       return;
     }
 
-    const api = this.getApi();
-    if (!api) {
+    const runtime = this.getRuntime();
+    if (!runtime) {
       return;
     }
 
-    this.map.centerAndZoom(new api.Point(view.center.lng, view.center.lat), view.zoom);
+    this.map.centerAndZoom(new runtime.api.Point(view.center.lng, view.center.lat), view.zoom);
   }
 
   getView(): MapViewState | null {
@@ -99,11 +109,30 @@ export class BaiduMapProvider implements MapProvider {
     };
   }
 
+  setLayer(layer: MapLayer) {
+    this.layer = layer;
+
+    if (!this.map) {
+      return;
+    }
+
+    const runtime = this.getRuntime();
+    const mapType = layer === "satellite" ? runtime?.satelliteMapType : runtime?.normalMapType;
+
+    if (mapType) {
+      this.map.setMapType?.(mapType);
+    }
+  }
+
+  getLayer() {
+    return this.layer;
+  }
+
   private loadScript(): Promise<BaiduMapLoadResult> {
     return (this.options.loadScript ?? loadBaiduMapScript)(this.baiduAk);
   }
 
-  private getApi() {
+  private getRuntime() {
     return this.options.getGlobal?.() ?? readBaiduMapGlobal();
   }
 }
@@ -117,5 +146,19 @@ function readBaiduMapGlobal() {
     return undefined;
   }
 
-  return (window as Window & { BMapGL?: BaiduMapGlobal }).BMapGL;
+  const runtimeWindow = window as Window & {
+    BMapGL?: BaiduMapGlobal;
+    BMAP_NORMAL_MAP?: unknown;
+    BMAP_SATELLITE_MAP?: unknown;
+  };
+
+  if (!runtimeWindow.BMapGL) {
+    return undefined;
+  }
+
+  return {
+    api: runtimeWindow.BMapGL,
+    normalMapType: runtimeWindow.BMAP_NORMAL_MAP,
+    satelliteMapType: runtimeWindow.BMAP_SATELLITE_MAP,
+  };
 }

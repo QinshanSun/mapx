@@ -67,6 +67,13 @@ pub struct SoftDeleteProjectRequest {
     pub current_project_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProjectMapLayerRequest {
+    pub project_id: String,
+    pub map_layer: String,
+}
+
 #[tauri::command]
 pub async fn get_project_workspace(
     state: tauri::State<'_, AppRuntimeState>,
@@ -128,6 +135,18 @@ pub async fn soft_delete_project(
         .filter(|current_project_id| *current_project_id != request.project_id);
 
     load_project_workspace(&pool, &default_city, next_project_id).await
+}
+
+#[tauri::command]
+pub async fn update_project_map_layer(
+    state: tauri::State<'_, AppRuntimeState>,
+    request: UpdateProjectMapLayerRequest,
+) -> Result<ProjectWorkspace, AppError> {
+    let pool = state.pool.clone().ok_or_else(AppError::db)?;
+    let default_city = load_default_city(&pool).await?;
+
+    update_map_layer(&pool, &request.project_id, &request.map_layer).await?;
+    load_project_workspace(&pool, &default_city, Some(request.project_id.as_str())).await
 }
 
 pub async fn ensure_default_project(pool: &SqlitePool, default_city: &str) -> Result<(), AppError> {
@@ -306,6 +325,30 @@ async fn delete_project(pool: &SqlitePool, project_id: &str) -> Result<(), AppEr
     Ok(())
 }
 
+async fn update_map_layer(
+    pool: &SqlitePool,
+    project_id: &str,
+    map_layer: &str,
+) -> Result<(), AppError> {
+    let map_layer = validate_map_layer(map_layer)?;
+    ensure_active_project(pool, project_id).await?;
+
+    sqlx::query(
+        "UPDATE project_settings
+         SET map_layer = ?,
+             updated_at = datetime('now')
+         WHERE project_id = ?
+           AND deleted_at IS NULL",
+    )
+    .bind(map_layer)
+    .bind(project_id)
+    .execute(pool)
+    .await
+    .map_err(AppError::from)?;
+
+    Ok(())
+}
+
 async fn ensure_settings_for_first_project(
     pool: &SqlitePool,
     default_city: &str,
@@ -438,6 +481,14 @@ fn project_from_row(row: sqlx::sqlite::SqliteRow) -> Result<ProjectSummary, AppE
             .try_get::<String, _>("updated_at")
             .map_err(AppError::from)?,
     })
+}
+
+fn validate_map_layer(map_layer: &str) -> Result<&'static str, AppError> {
+    match map_layer.trim() {
+        "normal" => Ok("normal"),
+        "satellite" => Ok("satellite"),
+        _ => Err(AppError::validation("地图图层只能是普通地图或卫星图。")),
+    }
 }
 
 #[cfg(test)]
@@ -648,6 +699,47 @@ mod tests {
             .expect_err("empty project name should fail");
 
         assert_eq!(error.message, "名称不能为空。");
+    }
+
+    #[tokio::test]
+    async fn updates_project_map_layer_per_project() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        let first_project = insert_project_with_settings(&pool, "项目一", "上海")
+            .await
+            .expect("first project should be created");
+        let second_project = insert_project_with_settings(&pool, "项目二", "上海")
+            .await
+            .expect("second project should be created");
+
+        update_map_layer(&pool, &first_project.id, "satellite")
+            .await
+            .expect("map layer should update");
+
+        let first_workspace =
+            load_project_workspace(&pool, "上海", Some(first_project.id.as_str()))
+                .await
+                .expect("first workspace should load");
+        let second_workspace =
+            load_project_workspace(&pool, "上海", Some(second_project.id.as_str()))
+                .await
+                .expect("second workspace should load");
+
+        assert_eq!(first_workspace.settings.map_layer, "satellite");
+        assert_eq!(second_workspace.settings.map_layer, "normal");
+    }
+
+    #[tokio::test]
+    async fn map_layer_rejects_traffic_layer() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        let project = insert_project_with_settings(&pool, "项目", "上海")
+            .await
+            .expect("project should be created");
+
+        let error = update_map_layer(&pool, &project.id, "traffic")
+            .await
+            .expect_err("unsupported layer should fail");
+
+        assert_eq!(error.message, "地图图层只能是普通地图或卫星图。");
     }
 
     #[tokio::test]
