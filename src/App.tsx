@@ -279,7 +279,13 @@ function App() {
         <section className="border-b border-border p-4" aria-label="项目切换器">
           <div className="mb-3 flex items-center justify-between gap-2">
             <p className="text-xs font-medium text-muted-foreground">项目</p>
-            <Button type="button" size="icon" variant="ghost" onClick={() => openProjectCreate("button")}>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              aria-label="打开新建项目表单"
+              onClick={() => openProjectCreate("button")}
+            >
               <Plus />
             </Button>
           </div>
