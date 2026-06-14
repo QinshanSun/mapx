@@ -44,6 +44,17 @@ describe("baidu map script loader", () => {
     await expect(firstLoad).resolves.toEqual({ status: "loaded" });
   });
 
+  it("returns loaded when the same AK script already finished loading", async () => {
+    const fake = createFakeDocument();
+    const firstLoad = loadBaiduMapScript("same-ak", { document: fake.document });
+
+    fake.resolveBaiduCallback();
+
+    await expect(firstLoad).resolves.toEqual({ status: "loaded" });
+    await expect(loadBaiduMapScript("same-ak", { document: fake.document })).resolves.toEqual({ status: "loaded" });
+    expect(fake.appendChild).toHaveBeenCalledTimes(1);
+  });
+
   it("returns a structured failure when the script errors", async () => {
     const fake = createFakeDocument();
     const loading = loadBaiduMapScript("bad-ak", { document: fake.document });
@@ -116,6 +127,7 @@ class FakeScript {
   async = false;
   defer = false;
   src = "";
+  dataset: Record<string, string> = {};
   onerror: ((event: Event) => void) | null = null;
 
   constructor(private readonly elements: Map<string, FakeScript>) {}

@@ -30,10 +30,9 @@ export function loadBaiduMapScript(baiduAk: string | null | undefined, options: 
   }
 
   const doc = options.document ?? document;
-  const win = doc.defaultView ?? window;
   const existing = doc.getElementById(BAIDU_MAP_SCRIPT_ID) as HTMLScriptElement | null;
 
-  if (isBaiduMapReady(win)) {
+  if (existing?.dataset.mapxStatus === "loaded" && activeAk === ak) {
     return Promise.resolve<BaiduMapLoadResult>({ status: "loaded" });
   }
 
@@ -75,6 +74,7 @@ function injectBaiduMapScript(baiduAk: string, doc: Document, timeoutMs: number)
       }
 
       settled = true;
+      script.dataset.mapxStatus = result.status;
       win.clearTimeout(timeoutId);
       delete callbackHost[BAIDU_MAP_CALLBACK];
       resolve(result);
@@ -108,12 +108,4 @@ function injectBaiduMapScript(baiduAk: string, doc: Document, timeoutMs: number)
 
     doc.body.appendChild(script);
   });
-}
-
-function isBaiduMapReady(win: Window) {
-  if (!win) {
-    return false;
-  }
-
-  return Boolean((win as Window & { BMapGL?: unknown }).BMapGL);
 }

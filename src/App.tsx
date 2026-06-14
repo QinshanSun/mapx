@@ -18,6 +18,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
 import { FirstLaunchFlow } from "@/components/first-launch-flow";
+import { MapCanvas } from "@/components/map-canvas";
 import { MarkerDetailPanel, type MarkerDirtyHandlers } from "@/components/marker-detail-panel";
 import { MarkerListPanel } from "@/components/marker-list-panel";
 import { SettingsPanel } from "@/components/settings-panel";
@@ -739,15 +740,8 @@ function App() {
               />
             ) : null}
 
-            <div className="relative flex min-w-0 flex-1 items-center justify-center overflow-hidden p-6">
-              <div className="absolute inset-0 map-grid" aria-hidden="true" />
-              <div className="relative z-10 w-full max-w-2xl rounded-lg border border-dashed border-slate-300 bg-white/88 p-8 text-center shadow-sm backdrop-blur">
-                <MapPinned className="mx-auto mb-4 size-9 text-emerald-600" />
-                <h3 className="text-lg font-semibold">地图画布占位</h3>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  后续地图集成任务会在这里接入百度底图、点位渲染和点位创建工具模式。
-                </p>
-              </div>
+            <div className="relative min-w-0 flex-1 overflow-hidden">
+              <MapCanvas baiduAk={firstLaunchSettings.baiduAk} settings={projectWorkspace.settings} />
             </div>
           </div>
         </section>
