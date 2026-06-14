@@ -7,7 +7,7 @@ import {
   Star,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { FirstLaunchFlow } from "@/components/first-launch-flow";
 import { SettingsPanel } from "@/components/settings-panel";
@@ -62,6 +62,9 @@ function App() {
   const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapStatus | null>(null);
   const [firstLaunchSettings, setFirstLaunchSettings] = useState<FirstLaunchSettings | null>(null);
   const [firstLaunchError, setFirstLaunchError] = useState<string | null>(null);
+  const handleSettingsError = useCallback((error: unknown) => {
+    setFirstLaunchError(getBackendErrorMessage(error));
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -149,7 +152,7 @@ function App() {
       <FirstLaunchFlow
         initialSettings={firstLaunchSettings}
         onComplete={setFirstLaunchSettings}
-        onError={(error) => setFirstLaunchError(getBackendErrorMessage(error))}
+        onError={handleSettingsError}
       />
     );
   }
@@ -241,7 +244,7 @@ function App() {
             <SettingsPanel
               settings={firstLaunchSettings}
               onChange={setFirstLaunchSettings}
-              onError={(error) => setFirstLaunchError(getBackendErrorMessage(error))}
+              onError={handleSettingsError}
             />
           ) : (
             <div className="space-y-4 p-5">

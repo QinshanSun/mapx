@@ -1,3 +1,5 @@
+use std::{path::PathBuf, process::Command};
+
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 
@@ -67,6 +69,15 @@ pub struct FirstLaunchSettings {
     pub baidu_ak: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppInfo {
+    pub app_name: String,
+    pub version: String,
+    pub data_directory: String,
+    pub database_path: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompleteFirstLaunchRequest {
@@ -78,6 +89,12 @@ pub struct CompleteFirstLaunchRequest {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateDefaultCityRequest {
     pub default_city: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateBaiduAkRequest {
+    pub baidu_ak: Option<String>,
 }
 
 #[tauri::command]
@@ -112,6 +129,40 @@ pub async fn update_default_city(
     load_first_launch_settings(&pool).await
 }
 
+#[tauri::command]
+pub async fn update_baidu_ak(
+    state: tauri::State<'_, AppRuntimeState>,
+    request: UpdateBaiduAkRequest,
+) -> Result<FirstLaunchSettings, AppError> {
+    let pool = require_pool(&state)?;
+    let baidu_ak = normalize_baidu_ak(request.baidu_ak.as_deref());
+
+    upsert_app_setting(&pool, KEY_BAIDU_AK, baidu_ak.as_deref()).await?;
+
+    load_first_launch_settings(&pool).await
+}
+
+#[tauri::command]
+pub fn get_app_info(state: tauri::State<'_, AppRuntimeState>) -> Result<AppInfo, AppError> {
+    let database_path = database_path_from_state(&state)?;
+    let data_directory = data_directory_from_database_path(&database_path)?;
+
+    Ok(AppInfo {
+        app_name: "MapX".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        data_directory: data_directory.display().to_string(),
+        database_path,
+    })
+}
+
+#[tauri::command]
+pub fn open_data_directory(state: tauri::State<'_, AppRuntimeState>) -> Result<(), AppError> {
+    let database_path = database_path_from_state(&state)?;
+    let data_directory = data_directory_from_database_path(&database_path)?;
+
+    open_path(&data_directory)
+}
+
 async fn save_first_launch_settings(
     pool: &SqlitePool,
     request: CompleteFirstLaunchRequest,
@@ -120,9 +171,7 @@ async fn save_first_launch_settings(
     let baidu_ak = request
         .baidu_ak
         .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string);
+        .and_then(|value| normalize_baidu_ak(Some(value)));
 
     upsert_app_setting(&pool, KEY_DEFAULT_CITY, Some(default_city.as_str())).await?;
     upsert_app_setting(&pool, KEY_BAIDU_AK, baidu_ak.as_deref()).await?;
@@ -216,6 +265,47 @@ fn validate_default_city(default_city: &str) -> Result<String, AppError> {
     Ok(trimmed.to_string())
 }
 
+fn normalize_baidu_ak(baidu_ak: Option<&str>) -> Option<String> {
+    baidu_ak
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn database_path_from_state(state: &AppRuntimeState) -> Result<String, AppError> {
+    state
+        .bootstrap_status
+        .database_path
+        .clone()
+        .ok_or_else(AppError::db)
+}
+
+fn data_directory_from_database_path(database_path: &str) -> Result<PathBuf, AppError> {
+    PathBuf::from(database_path)
+        .parent()
+        .map(PathBuf::from)
+        .ok_or_else(AppError::db)
+}
+
+fn open_path(path: &PathBuf) -> Result<(), AppError> {
+    let mut command = if cfg!(target_os = "macos") {
+        let mut command = Command::new("open");
+        command.arg(path);
+        command
+    } else if cfg!(target_os = "windows") {
+        let mut command = Command::new("explorer");
+        command.arg(path);
+        command
+    } else {
+        let mut command = Command::new("xdg-open");
+        command.arg(path);
+        command
+    };
+
+    command.spawn().map_err(|_| AppError::db())?;
+    Ok(())
+}
+
 fn require_pool(state: &AppRuntimeState) -> Result<SqlitePool, AppError> {
     state.pool.clone().ok_or_else(AppError::db)
 }
@@ -264,6 +354,65 @@ mod tests {
         assert_eq!(settings.default_city, "上海");
         assert_eq!(settings.baidu_ak, None);
         assert!(settings.completed);
+    }
+
+    #[tokio::test]
+    async fn baidu_ak_can_be_saved_modified_and_cleared() {
+        let (_temp_dir, pool) = create_test_pool().await;
+
+        upsert_app_setting(
+            &pool,
+            KEY_BAIDU_AK,
+            normalize_baidu_ak(Some(" first-ak ")).as_deref(),
+        )
+        .await
+        .expect("first ak save should succeed");
+        assert_eq!(
+            load_first_launch_settings(&pool)
+                .await
+                .expect("settings should load")
+                .baidu_ak,
+            Some("first-ak".to_string())
+        );
+
+        upsert_app_setting(
+            &pool,
+            KEY_BAIDU_AK,
+            normalize_baidu_ak(Some(" second-ak ")).as_deref(),
+        )
+        .await
+        .expect("second ak save should succeed");
+        assert_eq!(
+            load_first_launch_settings(&pool)
+                .await
+                .expect("settings should load")
+                .baidu_ak,
+            Some("second-ak".to_string())
+        );
+
+        upsert_app_setting(
+            &pool,
+            KEY_BAIDU_AK,
+            normalize_baidu_ak(Some("   ")).as_deref(),
+        )
+        .await
+        .expect("ak clear should succeed");
+        assert_eq!(
+            load_first_launch_settings(&pool)
+                .await
+                .expect("settings should load")
+                .baidu_ak,
+            None
+        );
+    }
+
+    #[test]
+    fn app_info_paths_derive_data_directory_from_database_path() {
+        let database_path = "/tmp/MapX/mapx.sqlite";
+        let data_directory = data_directory_from_database_path(database_path)
+            .expect("data directory should derive from db path");
+
+        assert!(data_directory.ends_with("MapX"));
     }
 
     #[test]

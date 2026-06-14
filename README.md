@@ -11,7 +11,7 @@ See the V1 product and technical specification:
 
 ## Current Status
 
-The repository has the initial M1 foundation, the local data core through `DATA-004`, and settings work through `SET-002`.
+The repository has the initial M1 foundation, the local data core through `DATA-004`, and settings work through `SET-003`.
 
 Implemented foundation:
 
@@ -30,6 +30,7 @@ Implemented foundation:
 - GitHub Actions CI for frontend typecheck/lint/test and Rust fmt/check/test
 - First-launch settings flow with Shanghai as the default city and optional Baidu AK entry
 - Built-in China city list with city-level center coordinates and default city pickers
+- Settings page essentials for Baidu AK save/clear, app/data directory information, and opening the data directory
 - Basic scripts for development, typechecking, linting, frontend tests, frontend build, and Tauri build
 
 Last verified locally:
@@ -52,10 +53,10 @@ Note: the full default `npm run tauri:build` currently builds the release binary
 
 Work should continue from the M1 Foundation milestone in [docs/features-v1.md](docs/features-v1.md):
 
-1. `SET-003`: implement settings page essentials for Baidu AK, backup directory entry, and about information.
-2. `PROJ-001`: auto-create the default project and settings.
-3. `PROJ-002`: build the project switcher and create project flow.
-4. `TAX-001`: create default categories for new projects.
+1. `PROJ-001`: auto-create the default project and settings.
+2. `PROJ-002`: build the project switcher and create project flow.
+3. `TAX-001`: create default categories for new projects.
+4. `MRK-001`: add marker repository and commands.
 
 ## Development
 

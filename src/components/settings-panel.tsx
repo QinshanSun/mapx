@@ -1,10 +1,10 @@
-import { Check, RotateCcw } from "lucide-react";
-import { useRef, useState } from "react";
+import { Check, FolderOpen, Info, KeyRound, RotateCcw, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { CHINA_CITIES, normalizeCityName } from "@/data/china-cities";
-import { updateDefaultCity } from "@/services/settings-service";
-import type { FirstLaunchSettings } from "@/types/settings";
+import { getAppInfo, openDataDirectory, updateBaiduAk, updateDefaultCity } from "@/services/settings-service";
+import type { AppInfo, FirstLaunchSettings } from "@/types/settings";
 
 interface SettingsPanelProps {
   settings: FirstLaunchSettings;
@@ -15,12 +15,33 @@ interface SettingsPanelProps {
 export function SettingsPanel({ settings, onChange, onError }: SettingsPanelProps) {
   const citySelectRef = useRef<HTMLSelectElement>(null);
   const [selectedCity, setSelectedCity] = useState(normalizeCityName(settings.defaultCity));
-  const [isSaving, setIsSaving] = useState(false);
+  const [akDraft, setAkDraft] = useState(settings.baiduAk ?? "");
+  const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
+  const [isCitySaving, setIsCitySaving] = useState(false);
+  const [isAkSaving, setIsAkSaving] = useState(false);
+  const [isOpeningDataDirectory, setIsOpeningDataDirectory] = useState(false);
   const currentCity = CHINA_CITIES.find((city) => city.name === selectedCity) ?? CHINA_CITIES[0];
   const hasChanges = selectedCity !== normalizeCityName(settings.defaultCity);
+  const hasAkChanges = akDraft.trim() !== (settings.baiduAk ?? "");
+
+  useEffect(() => {
+    let isActive = true;
+
+    getAppInfo()
+      .then((nextInfo) => {
+        if (isActive) {
+          setAppInfo(nextInfo);
+        }
+      })
+      .catch(onError);
+
+    return () => {
+      isActive = false;
+    };
+  }, [onError]);
 
   async function saveCity() {
-    setIsSaving(true);
+    setIsCitySaving(true);
     try {
       const cityToSave = normalizeCityName(citySelectRef.current?.value ?? selectedCity);
       const nextSettings = await updateDefaultCity(cityToSave, settings);
@@ -29,7 +50,31 @@ export function SettingsPanel({ settings, onChange, onError }: SettingsPanelProp
     } catch (error) {
       onError(error);
     } finally {
-      setIsSaving(false);
+      setIsCitySaving(false);
+    }
+  }
+
+  async function saveAk(nextValue: string | null) {
+    setIsAkSaving(true);
+    try {
+      const nextSettings = await updateBaiduAk(nextValue, settings);
+      onChange(nextSettings);
+      setAkDraft(nextSettings.baiduAk ?? "");
+    } catch (error) {
+      onError(error);
+    } finally {
+      setIsAkSaving(false);
+    }
+  }
+
+  async function openDataDir() {
+    setIsOpeningDataDirectory(true);
+    try {
+      await openDataDirectory();
+    } catch (error) {
+      onError(error);
+    } finally {
+      setIsOpeningDataDirectory(false);
     }
   }
 
@@ -64,16 +109,83 @@ export function SettingsPanel({ settings, onChange, onError }: SettingsPanelProp
             type="button"
             variant="outline"
             size="sm"
-            disabled={!hasChanges || isSaving}
+            disabled={!hasChanges || isCitySaving}
             onClick={() => setSelectedCity(normalizeCityName(settings.defaultCity))}
           >
             <RotateCcw />
             恢复
           </Button>
-          <Button type="button" size="sm" disabled={!hasChanges || isSaving} onClick={saveCity}>
+          <Button type="button" size="sm" disabled={!hasChanges || isCitySaving} onClick={saveCity}>
             <Check />
             保存城市
           </Button>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-border p-4">
+        <label className="block text-sm font-medium" htmlFor="settings-baidu-ak">
+          百度地图 AK
+          <div className="relative mt-2">
+            <KeyRound className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              id="settings-baidu-ak"
+              className="h-10 w-full rounded-md border border-input bg-background px-9 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-ring"
+              type="password"
+              value={akDraft}
+              placeholder="可留空，稍后再配置"
+              onChange={(event) => setAkDraft(event.target.value)}
+            />
+          </div>
+        </label>
+
+        <div className="mt-4 flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isAkSaving || (!settings.baiduAk && !akDraft.trim())}
+            onClick={() => saveAk(null)}
+          >
+            <Trash2 />
+            清除
+          </Button>
+          <Button type="button" size="sm" disabled={isAkSaving || !hasAkChanges} onClick={() => saveAk(akDraft)}>
+            <Check />
+            保存 AK
+          </Button>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-border p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold">本地目录</h3>
+          <FolderOpen className="size-4 text-muted-foreground" />
+        </div>
+        <div className="space-y-2 text-xs leading-5 text-muted-foreground">
+          <p className="break-all">数据目录：{appInfo?.dataDirectory ?? "正在读取"}</p>
+          <p>备份目录：后续自动备份任务接入</p>
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button type="button" variant="outline" size="sm" disabled>
+            <FolderOpen />
+            打开备份目录
+          </Button>
+          <Button type="button" size="sm" disabled={isOpeningDataDirectory || !appInfo} onClick={openDataDir}>
+            <FolderOpen />
+            打开数据目录
+          </Button>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-border p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold">关于 MapX</h3>
+          <Info className="size-4 text-muted-foreground" />
+        </div>
+        <div className="space-y-2 text-xs leading-5 text-muted-foreground">
+          <p>应用名称：{appInfo?.appName ?? "MapX"}</p>
+          <p>版本：{appInfo?.version ?? "正在读取"}</p>
+          <p className="break-all">数据库：{appInfo?.databasePath ?? "正在读取"}</p>
         </div>
       </section>
     </div>

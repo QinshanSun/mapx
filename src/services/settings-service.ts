@@ -2,7 +2,13 @@ import { isTauri } from "@tauri-apps/api/core";
 
 import { normalizeCityName } from "@/data/china-cities";
 import { callCommand } from "@/services/tauri-client";
-import type { CompleteFirstLaunchInput, FirstLaunchFormValues, FirstLaunchSettings } from "@/types/settings";
+import type {
+  AppInfo,
+  CompleteFirstLaunchInput,
+  FirstLaunchFormValues,
+  FirstLaunchSettings,
+  UpdateBaiduAkInput,
+} from "@/types/settings";
 
 export const DEFAULT_CITY = "上海";
 
@@ -43,6 +49,40 @@ export function updateDefaultCity(defaultCity: string, currentSettings: FirstLau
   return callCommand<FirstLaunchSettings>("update_default_city", { request: input });
 }
 
+export function updateBaiduAk(baiduAk: string | null, currentSettings: FirstLaunchSettings) {
+  const input = buildUpdateBaiduAkInput(baiduAk ?? "");
+
+  if (!isTauri()) {
+    return Promise.resolve<FirstLaunchSettings>({
+      ...currentSettings,
+      baiduAk: input.baiduAk,
+    });
+  }
+
+  return callCommand<FirstLaunchSettings>("update_baidu_ak", { request: input });
+}
+
+export function getAppInfo() {
+  if (!isTauri()) {
+    return Promise.resolve<AppInfo>({
+      appName: "MapX",
+      version: "0.1.0",
+      dataDirectory: "浏览器预览模式",
+      databasePath: "浏览器预览模式",
+    });
+  }
+
+  return callCommand<AppInfo>("get_app_info");
+}
+
+export function openDataDirectory() {
+  if (!isTauri()) {
+    return Promise.resolve<void>(undefined);
+  }
+
+  return callCommand<void>("open_data_directory");
+}
+
 export function buildCompleteFirstLaunchInput(
   values: FirstLaunchFormValues,
   options: { skipBaiduAk?: boolean } = {},
@@ -53,5 +93,13 @@ export function buildCompleteFirstLaunchInput(
   return {
     defaultCity,
     baiduAk,
+  };
+}
+
+export function buildUpdateBaiduAkInput(baiduAk: string): UpdateBaiduAkInput {
+  const trimmed = baiduAk.trim();
+
+  return {
+    baiduAk: trimmed || null,
   };
 }
