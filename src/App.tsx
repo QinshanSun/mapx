@@ -9,11 +9,15 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { FirstLaunchFlow } from "@/components/first-launch-flow";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceActionEvents } from "@/hooks/use-workspace-action-events";
+import { getBackendErrorMessage } from "@/services/backend-error";
 import { getBootstrapStatus } from "@/services/bootstrap-service";
+import { getFirstLaunchSettings } from "@/services/settings-service";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { BootstrapStatus } from "@/types/bootstrap";
+import type { FirstLaunchSettings } from "@/types/settings";
 import type { WorkspaceMarkerPreview, WorkspacePanel } from "@/types/workspace";
 
 const markerPreviews: WorkspaceMarkerPreview[] = [
@@ -55,6 +59,8 @@ function getDetailTitle(panel: WorkspacePanel) {
 
 function App() {
   const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapStatus | null>(null);
+  const [firstLaunchSettings, setFirstLaunchSettings] = useState<FirstLaunchSettings | null>(null);
+  const [firstLaunchError, setFirstLaunchError] = useState<string | null>(null);
 
   useEffect(() => {
     let isActive = true;
@@ -80,6 +86,30 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!bootstrapStatus?.ready) {
+      return;
+    }
+
+    let isActive = true;
+
+    getFirstLaunchSettings()
+      .then((settings) => {
+        if (isActive) {
+          setFirstLaunchSettings(settings);
+        }
+      })
+      .catch((error) => {
+        if (isActive) {
+          setFirstLaunchError(getBackendErrorMessage(error));
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [bootstrapStatus]);
+
   useWorkspaceActionEvents();
 
   const { activePanel, dispatchAction, lastActionNotice, selectedMarkerId, setActivePanel, selectMarker } =
@@ -99,8 +129,33 @@ function App() {
     );
   }
 
+  if (firstLaunchError) {
+    return (
+      <BootstrapGate
+        title="应用设置读取失败"
+        message={firstLaunchError}
+        detail="为了避免写入不完整设置，主界面已暂停加载。"
+      />
+    );
+  }
+
+  if (!firstLaunchSettings) {
+    return <BootstrapGate title="正在读取应用设置" message="MapX 正在准备首次启动配置。" />;
+  }
+
+  if (!firstLaunchSettings.completed) {
+    return (
+      <FirstLaunchFlow
+        initialSettings={firstLaunchSettings}
+        onComplete={setFirstLaunchSettings}
+        onError={(error) => setFirstLaunchError(getBackendErrorMessage(error))}
+      />
+    );
+  }
+
   const selectedMarker = markerPreviews.find((marker) => marker.id === selectedMarkerId) ?? markerPreviews[0];
   const detailTitle = getDetailTitle(activePanel);
+  const akStatus = firstLaunchSettings.baiduAk ? "已配置" : "未配置";
 
   return (
     <main className="flex min-h-screen bg-background text-foreground">
@@ -138,8 +193,8 @@ function App() {
         </nav>
 
         <div className="border-t border-border p-4 text-xs leading-5 text-muted-foreground">
-          <p>默认城市：上海</p>
-          <p>百度 AK：待配置</p>
+          <p>默认城市：{firstLaunchSettings.defaultCity}</p>
+          <p>百度 AK：{akStatus}</p>
           <p>快捷键：Cmd/Ctrl+N/F/S、Esc、Delete</p>
         </div>
       </aside>

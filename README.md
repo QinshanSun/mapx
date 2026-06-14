@@ -11,7 +11,7 @@ See the V1 product and technical specification:
 
 ## Current Status
 
-The repository has the initial M1 foundation plus the local data core through `DATA-004`.
+The repository has the initial M1 foundation, the local data core through `DATA-004`, and the first settings flow through `SET-001`.
 
 Implemented foundation:
 
@@ -27,6 +27,8 @@ Implemented foundation:
 - V1 core SQLite schema for projects, settings, markers, categories, tags, marker tags, app settings, and backup metadata
 - Structured backend error codes with frontend Chinese message mapping
 - Backend validation helpers for required names, BD-09 coordinates, active records, and project ownership checks
+- GitHub Actions CI for frontend typecheck/lint/test and Rust fmt/check/test
+- First-launch settings flow with Shanghai as the default city and optional Baidu AK entry
 - Basic scripts for development, typechecking, linting, frontend tests, frontend build, and Tauri build
 
 Last verified locally:
@@ -38,18 +40,21 @@ Last verified locally:
 - `cargo fmt --check`
 - `cargo check`
 - `cargo test`
-- `npm run tauri:build`
+- `npm run tauri:build -- --bundles app`
 - `npm run tauri:dev`
+- GitHub Actions CI on `main`
 - `npm audit --omit=dev`
+
+Note: the full default `npm run tauri:build` currently builds the release binary and `.app`, then fails during local DMG bundling. Installer verification remains part of later packaging/build validation work.
 
 ## Recommended Next Steps
 
 Work should continue from the M1 Foundation milestone in [docs/features-v1.md](docs/features-v1.md):
 
-1. `MAP-001` and `MAP-006`: run the Baidu Maps WebView/origin and allowlist spikes early to reduce integration risk.
-2. `QA-002`: add GitHub Actions CI so typecheck/lint/test can run automatically.
-3. `SET-001`: begin the first-launch settings flow after backend validation helpers are in place.
-4. `SET-002`: add the internal city list and default city picker.
+1. `SET-002`: add the internal city list and default city picker.
+2. `SET-003`: implement settings page essentials for Baidu AK, default city, backup directory entry, and about information.
+3. `PROJ-001`: auto-create the default project and settings.
+4. `PROJ-002`: build the project switcher and create project flow.
 
 ## Development
 
