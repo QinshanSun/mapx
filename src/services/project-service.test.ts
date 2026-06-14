@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildPreviewProjectWorkspace, selectProject } from "@/services/project-service";
+import { buildPreviewProjectWorkspace, renameProject, selectProject, validateProjectName } from "@/services/project-service";
 
 describe("project service", () => {
   it("builds a preview default project from the selected city", () => {
@@ -29,5 +29,14 @@ describe("project service", () => {
     const nextWorkspace = await selectProject("preview-project", workspace);
 
     expect(nextWorkspace.currentProject.name).toBe("我的项目");
+  });
+
+  it("validates and previews project rename", async () => {
+    const workspace = buildPreviewProjectWorkspace("上海");
+    const nextWorkspace = await renameProject("preview-project", " 新名称 ", workspace);
+
+    expect(validateProjectName("   ")).toBe("项目名称不能为空。");
+    expect(nextWorkspace.currentProject.name).toBe("新名称");
+    expect(nextWorkspace.projects[0].name).toBe("新名称");
   });
 });

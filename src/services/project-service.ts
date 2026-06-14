@@ -23,6 +23,31 @@ export function createProject(name: string, currentWorkspace: ProjectWorkspace |
   return callCommand<ProjectWorkspace>("create_project", { request: { name } });
 }
 
+export function validateProjectName(name: string) {
+  return name.trim() ? null : "项目名称不能为空。";
+}
+
+export function renameProject(projectId: string, name: string, currentWorkspace: ProjectWorkspace) {
+  if (!isTauri()) {
+    const trimmedName = name.trim();
+    const projects = currentWorkspace.projects.map((project) =>
+      project.id === projectId ? { ...project, name: trimmedName, updatedAt: previewNow } : project,
+    );
+    const currentProject =
+      currentWorkspace.currentProject.id === projectId
+        ? { ...currentWorkspace.currentProject, name: trimmedName, updatedAt: previewNow }
+        : currentWorkspace.currentProject;
+
+    return Promise.resolve({
+      ...currentWorkspace,
+      projects,
+      currentProject,
+    });
+  }
+
+  return callCommand<ProjectWorkspace>("rename_project", { request: { projectId, name } });
+}
+
 export function selectProject(projectId: string, currentWorkspace: ProjectWorkspace) {
   if (!isTauri()) {
     const currentProject = currentWorkspace.projects.find((project) => project.id === projectId);

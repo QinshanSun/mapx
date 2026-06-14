@@ -53,6 +53,13 @@ pub struct SelectProjectRequest {
     pub project_id: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameProjectRequest {
+    pub project_id: String,
+    pub name: String,
+}
+
 #[tauri::command]
 pub async fn get_project_workspace(
     state: tauri::State<'_, AppRuntimeState>,
@@ -84,6 +91,18 @@ pub async fn select_project_workspace(
     let default_city = load_default_city(&pool).await?;
 
     ensure_active_project(&pool, &request.project_id).await?;
+    load_project_workspace(&pool, &default_city, Some(request.project_id.as_str())).await
+}
+
+#[tauri::command]
+pub async fn rename_project(
+    state: tauri::State<'_, AppRuntimeState>,
+    request: RenameProjectRequest,
+) -> Result<ProjectWorkspace, AppError> {
+    let pool = state.pool.clone().ok_or_else(AppError::db)?;
+    let default_city = load_default_city(&pool).await?;
+
+    update_project_name(&pool, &request.project_id, &request.name).await?;
     load_project_workspace(&pool, &default_city, Some(request.project_id.as_str())).await
 }
 
@@ -219,6 +238,30 @@ async fn insert_project_with_settings(
     create_default_categories_for_project(pool, &project_id).await?;
 
     load_project_by_id(pool, &project_id).await
+}
+
+async fn update_project_name(
+    pool: &SqlitePool,
+    project_id: &str,
+    name: &str,
+) -> Result<ProjectSummary, AppError> {
+    let name = validate_required_name(name)?;
+    ensure_active_project(pool, project_id).await?;
+
+    sqlx::query(
+        "UPDATE projects
+         SET name = ?,
+             updated_at = datetime('now')
+         WHERE id = ?
+           AND deleted_at IS NULL",
+    )
+    .bind(name)
+    .bind(project_id)
+    .execute(pool)
+    .await
+    .map_err(AppError::from)?;
+
+    load_project_by_id(pool, project_id).await
 }
 
 async fn ensure_settings_for_first_project(
@@ -522,6 +565,47 @@ mod tests {
 
         assert_eq!(workspace.projects.len(), 1);
         assert_eq!(workspace.projects[0].name, "我的项目");
+    }
+
+    #[tokio::test]
+    async fn renames_project_and_updates_timestamp() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        insert_project_with_settings(&pool, "原项目", "上海")
+            .await
+            .expect("project should be created");
+        sqlx::query(
+            "UPDATE projects
+             SET updated_at = '2026-01-01T00:00:00Z'
+             WHERE id = (SELECT id FROM projects LIMIT 1)",
+        )
+        .execute(&pool)
+        .await
+        .expect("project timestamp should update");
+        let project_id: String = sqlx::query_scalar("SELECT id FROM projects LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .expect("project id should load");
+
+        let renamed = update_project_name(&pool, &project_id, "  新项目  ")
+            .await
+            .expect("project should rename");
+
+        assert_eq!(renamed.name, "新项目");
+        assert_ne!(renamed.updated_at, "2026-01-01T00:00:00Z");
+    }
+
+    #[tokio::test]
+    async fn rename_project_rejects_empty_name() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        let project = insert_project_with_settings(&pool, "原项目", "上海")
+            .await
+            .expect("project should be created");
+
+        let error = update_project_name(&pool, &project.id, "   ")
+            .await
+            .expect_err("empty project name should fail");
+
+        assert_eq!(error.message, "名称不能为空。");
     }
 
     async fn create_test_pool() -> (tempfile::TempDir, SqlitePool) {

@@ -99,6 +99,7 @@ pub fn run() {
             settings::update_default_city,
             projects::create_project,
             projects::get_project_workspace,
+            projects::rename_project,
             projects::select_project_workspace,
             markers::create_marker,
             markers::list_project_markers,

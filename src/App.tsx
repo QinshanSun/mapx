@@ -1,8 +1,11 @@
 import {
   CircleHelp,
   FolderOpen,
+  Check,
   MapPinned,
+  Pencil,
   Plus,
+  RotateCcw,
   Search,
   Settings,
   Star,
@@ -22,7 +25,7 @@ import { useWorkspaceActionEvents } from "@/hooks/use-workspace-action-events";
 import { getBackendErrorMessage } from "@/services/backend-error";
 import { getBootstrapStatus } from "@/services/bootstrap-service";
 import { resolveDirtyGuardChoice, type DirtyGuardChoice } from "@/services/dirty-guard";
-import { createProject, getProjectWorkspace, selectProject } from "@/services/project-service";
+import { createProject, getProjectWorkspace, renameProject, selectProject, validateProjectName } from "@/services/project-service";
 import { getFirstLaunchSettings } from "@/services/settings-service";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { BootstrapStatus } from "@/types/bootstrap";
@@ -69,11 +72,14 @@ function App() {
   const [projectWorkspace, setProjectWorkspace] = useState<ProjectWorkspace | null>(null);
   const [isProjectCreateOpen, setIsProjectCreateOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
+  const [isProjectRenameOpen, setIsProjectRenameOpen] = useState(false);
+  const [projectRenameName, setProjectRenameName] = useState("");
   const [projectActionError, setProjectActionError] = useState<string | null>(null);
   const [selectedMarkerRecord, setSelectedMarkerRecord] = useState<MarkerRecord | null>(null);
   const [markerListRefreshKey, setMarkerListRefreshKey] = useState(0);
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | null>(null);
   const [isProjectSaving, setIsProjectSaving] = useState(false);
+  const [isProjectRenaming, setIsProjectRenaming] = useState(false);
   const [firstLaunchError, setFirstLaunchError] = useState<string | null>(null);
   const markerDirtyHandlersRef = useRef<MarkerDirtyHandlers | null>(null);
   const pendingDirtyActionRef = useRef<PendingDirtyAction | null>(null);
@@ -255,9 +261,21 @@ function App() {
 
   const openProjectCreateForm = useCallback(() => {
     setIsProjectCreateOpen(true);
+    setIsProjectRenameOpen(false);
     setProjectActionError(null);
     setActivePanel("overview");
   }, [setActivePanel]);
+
+  const openProjectRenameForm = useCallback(() => {
+    if (!projectWorkspace) {
+      return;
+    }
+
+    setIsProjectRenameOpen(true);
+    setIsProjectCreateOpen(false);
+    setProjectRenameName(projectWorkspace.currentProject.name);
+    setProjectActionError(null);
+  }, [projectWorkspace]);
 
   const runWorkspaceAction = useCallback(
     (actionId: WorkspaceActionId, source: WorkspaceActionSource) => {
@@ -324,6 +342,8 @@ function App() {
               setProjectWorkspace(workspace);
               setSelectedMarkerRecord(null);
               selectMarker(null);
+              setIsProjectRenameOpen(false);
+              setProjectRenameName("");
               setActivePanel("overview");
               setProjectActionError(null);
             })
@@ -359,6 +379,35 @@ function App() {
         .finally(() => setIsProjectSaving(false));
     },
     [newProjectName, projectWorkspace, selectMarker, setActivePanel],
+  );
+
+  const handleProjectRename = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+
+      if (!projectWorkspace) {
+        return;
+      }
+
+      const validationError = validateProjectName(projectRenameName);
+
+      if (validationError) {
+        setProjectActionError(validationError);
+        return;
+      }
+
+      setIsProjectRenaming(true);
+      renameProject(projectWorkspace.currentProject.id, projectRenameName, projectWorkspace)
+        .then((workspace) => {
+          setProjectWorkspace(workspace);
+          setProjectRenameName(workspace.currentProject.name);
+          setIsProjectRenameOpen(false);
+          setProjectActionError(null);
+        })
+        .catch((error) => setProjectActionError(getBackendErrorMessage(error)))
+        .finally(() => setIsProjectRenaming(false));
+    },
+    [projectRenameName, projectWorkspace],
   );
 
   const handlePanelSelect = useCallback(
@@ -454,19 +503,61 @@ function App() {
             {projectWorkspace.projects.map((project) => {
               const isCurrent = project.id === projectWorkspace.currentProject.id;
 
+              if (isCurrent && isProjectRenameOpen) {
+                return (
+                  <form key={project.id} className="rounded-md border border-primary/30 bg-primary/5 p-2" onSubmit={handleProjectRename}>
+                    <input
+                      className="h-8 w-full rounded-md border border-input bg-white px-2 text-sm outline-none focus:border-primary"
+                      value={projectRenameName}
+                      onChange={(event) => setProjectRenameName(event.target.value)}
+                      placeholder="项目名称"
+                    />
+                    <div className="mt-2 flex justify-end gap-1">
+                      <Button type="button" size="icon" variant="ghost" disabled={isProjectRenaming} onClick={() => setProjectRenameName(project.name)}>
+                        <RotateCcw />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        disabled={isProjectRenaming}
+                        onClick={() => {
+                          setIsProjectRenameOpen(false);
+                          setProjectActionError(null);
+                        }}
+                      >
+                        <X />
+                      </Button>
+                      <Button type="submit" size="icon" variant="ghost" disabled={isProjectRenaming}>
+                        <Check />
+                      </Button>
+                    </div>
+                  </form>
+                );
+              }
+
               return (
-                <button
+                <div
                   key={project.id}
-                  type="button"
-                  className={`w-full rounded-md border px-3 py-2 text-left text-sm font-medium transition ${
+                  className={`flex items-center rounded-md border transition ${
                     isCurrent
                       ? "border-primary/30 bg-primary/5 text-primary"
                       : "border-border text-foreground hover:border-primary/40 hover:bg-accent"
                   }`}
-                  onClick={() => handleProjectSelect(project.id)}
                 >
-                  {project.name}
-                </button>
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 px-3 py-2 text-left text-sm font-medium"
+                    onClick={() => handleProjectSelect(project.id)}
+                  >
+                    <span className="block truncate">{project.name}</span>
+                  </button>
+                  {isCurrent ? (
+                    <Button type="button" size="icon" variant="ghost" aria-label={`重命名项目 ${project.name}`} onClick={openProjectRenameForm}>
+                      <Pencil />
+                    </Button>
+                  ) : null}
+                </div>
               );
             })}
           </div>
