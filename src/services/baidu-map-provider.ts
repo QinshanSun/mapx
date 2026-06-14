@@ -29,7 +29,10 @@ interface BaiduIconOptions {
 }
 
 interface BaiduMarkerInstance {
-  addEventListener?: (eventName: string, handler: () => void) => void;
+  addEventListener?: (eventName: string, handler: (event?: BaiduMapClickEvent) => void) => void;
+  disableDragging?: () => void;
+  enableDragging?: () => void;
+  getPosition?: () => BaiduPoint;
   setIcon?: (icon: unknown) => void;
   setTitle?: (title: string) => void;
   setZIndex?: (zIndex: number) => void;
@@ -61,7 +64,9 @@ export class BaiduMapProvider implements MapProvider {
   private iconCache = new Map<string, unknown>();
   private isDestroyed = true;
   private layer: MapLayer = "normal";
+  private draggableMarkerId: string | null = null;
   private mapClickHandler: ((coordinate: MapCoordinate) => void) | null = null;
+  private markerDragHandler: ((markerId: string, coordinate: MapCoordinate) => void) | null = null;
   private markerClickHandler: ((markerId: string) => void) | null = null;
   private markerItems: MapMarkerItem[] = [];
   private markerOverlays: BaiduMarkerInstance[] = [];
@@ -180,6 +185,11 @@ export class BaiduMapProvider implements MapProvider {
     this.renderMarkers();
   }
 
+  setDraggableMarker(markerId: string | null) {
+    this.draggableMarkerId = markerId;
+    this.renderMarkers();
+  }
+
   setPoiPreview(preview: MapPoiPreview | null) {
     this.poiPreview = preview;
     this.renderPoiPreview();
@@ -187,6 +197,10 @@ export class BaiduMapProvider implements MapProvider {
 
   setMarkerClickHandler(handler: ((markerId: string) => void) | null) {
     this.markerClickHandler = handler;
+  }
+
+  setMarkerDragHandler(handler: ((markerId: string, coordinate: MapCoordinate) => void) | null) {
+    this.markerDragHandler = handler;
   }
 
   setMapClickHandler(handler: ((coordinate: MapCoordinate) => void) | null) {
@@ -214,13 +228,25 @@ export class BaiduMapProvider implements MapProvider {
     this.clearMarkers();
     this.markerOverlays = this.markerItems.map((markerItem) => {
       const isSelected = markerItem.id === this.selectedMarkerId;
+      const isDraggable = markerItem.id === this.draggableMarkerId;
       const point = new runtime.api.Point(markerItem.lng, markerItem.lat);
       const marker = new runtime.api.Marker(point, {
         icon: this.getMarkerIcon(runtime.api, markerItem, isSelected),
       });
 
       marker.setTitle?.(markerItem.name);
-      marker.setZIndex?.(isSelected ? 20 : 10);
+      marker.setZIndex?.(isDraggable ? 25 : isSelected ? 20 : 10);
+      if (isDraggable) {
+        marker.enableDragging?.();
+        marker.addEventListener?.("dragend", (event) => {
+          const coordinate = readClickCoordinate(event) ?? readMarkerPosition(marker);
+          if (coordinate) {
+            this.markerDragHandler?.(markerItem.id, coordinate);
+          }
+        });
+      } else {
+        marker.disableDragging?.();
+      }
       marker.addEventListener?.("click", () => {
         this.markerClickHandler?.(markerItem.id);
       });
@@ -340,8 +366,25 @@ export function readBaiduMapRuntime() {
   };
 }
 
-function readClickCoordinate(event: BaiduMapClickEvent): MapCoordinate | null {
+function readClickCoordinate(event: BaiduMapClickEvent | undefined): MapCoordinate | null {
+  if (!event) {
+    return null;
+  }
+
   const point = event.latlng ?? event.point;
+
+  if (!point || !Number.isFinite(point.lng) || !Number.isFinite(point.lat)) {
+    return null;
+  }
+
+  return {
+    lng: point.lng,
+    lat: point.lat,
+  };
+}
+
+function readMarkerPosition(marker: BaiduMarkerInstance): MapCoordinate | null {
+  const point = marker.getPosition?.();
 
   if (!point || !Number.isFinite(point.lng) || !Number.isFinite(point.lat)) {
     return null;

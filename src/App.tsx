@@ -119,6 +119,8 @@ function App() {
   const [markerListRefreshKey, setMarkerListRefreshKey] = useState(0);
   const [mapAvailability, setMapAvailability] = useState<MapCanvasAvailability>("loading");
   const [poiPreview, setPoiPreview] = useState<MapPoiPreview | null>(null);
+  const [coordinateEditMarkerId, setCoordinateEditMarkerId] = useState<string | null>(null);
+  const [movedMarkerCoordinate, setMovedMarkerCoordinate] = useState<MapCoordinate | null>(null);
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | null>(null);
   const [isProjectSaving, setIsProjectSaving] = useState(false);
   const [isProjectRenaming, setIsProjectRenaming] = useState(false);
@@ -129,7 +131,17 @@ function App() {
   const markerDirtyHandlersRef = useRef<MarkerDirtyHandlers | null>(null);
   const pendingDirtyActionRef = useRef<PendingDirtyAction | null>(null);
   const mapMarkers = useMemo(() => {
-    const markerItems: MapMarkerItem[] = buildMapMarkerItems(filteredMarkerRecords, markerCategories);
+    const markerItems: MapMarkerItem[] = buildMapMarkerItems(filteredMarkerRecords, markerCategories).map((markerItem) => {
+      if (markerItem.id !== coordinateEditMarkerId || !movedMarkerCoordinate) {
+        return markerItem;
+      }
+
+      return {
+        ...markerItem,
+        lng: movedMarkerCoordinate.lng,
+        lat: movedMarkerCoordinate.lat,
+      };
+    });
 
     if (pendingMarker) {
       return [
@@ -146,7 +158,7 @@ function App() {
     }
 
     return markerItems;
-  }, [filteredMarkerRecords, markerCategories, pendingMarker]);
+  }, [coordinateEditMarkerId, filteredMarkerRecords, markerCategories, movedMarkerCoordinate, pendingMarker]);
   const handleSettingsError = useCallback((error: unknown) => {
     setFirstLaunchError(getBackendErrorMessage(error));
   }, []);
@@ -267,6 +279,8 @@ function App() {
       runWithMarkerDirtyGuard({
         message: "切换点位前，当前点位还有未保存的修改。",
         run: () => {
+          setCoordinateEditMarkerId(null);
+          setMovedMarkerCoordinate(null);
           selectMarker(marker.id);
           setSelectedMarkerRecord(marker);
         },
@@ -278,6 +292,8 @@ function App() {
   const selectMarkerRecord = useCallback(
     (marker: MarkerRecord) => {
       setPoiPreview(cancelPoiPreview());
+      setCoordinateEditMarkerId(null);
+      setMovedMarkerCoordinate(null);
       selectMarker(marker.id);
       setSelectedMarkerRecord(marker);
     },
@@ -308,12 +324,16 @@ function App() {
   const clearPendingMarker = useCallback(() => {
     setPendingMarker(null);
     setIsMarkerCreationMode(false);
+    setCoordinateEditMarkerId(null);
+    setMovedMarkerCoordinate(null);
   }, []);
 
   const startMarkerCreationMode = useCallback(() => {
     runWithMarkerDirtyGuard({
       message: "进入添加点位前，当前点位还有未保存的修改。",
       run: () => {
+        setCoordinateEditMarkerId(null);
+        setMovedMarkerCoordinate(null);
         setIsMarkerCreationMode(true);
         setActivePanel("markers");
       },
@@ -323,6 +343,8 @@ function App() {
   const cancelMarkerCreationMode = useCallback(() => {
     setPendingMarker(null);
     setIsMarkerCreationMode(false);
+    setCoordinateEditMarkerId(null);
+    setMovedMarkerCoordinate(null);
   }, []);
 
   const beginPendingMarkerCreation = useCallback(
@@ -336,6 +358,8 @@ function App() {
         run: () => {
           setPendingMarker(nextPendingMarker);
           setPoiPreview(cancelPoiPreview());
+          setCoordinateEditMarkerId(null);
+          setMovedMarkerCoordinate(null);
           setSelectedMarkerRecord(null);
           selectMarker(null);
           setActivePanel("markers");
@@ -378,10 +402,28 @@ function App() {
     beginPendingMarkerCreation(createPendingMarkerFromPoi(projectWorkspace.currentProject.id, poiPreview));
   }, [beginPendingMarkerCreation, poiPreview, projectWorkspace]);
 
+  const handleMarkerEditModeChange = useCallback((isEditing: boolean, marker: MarkerRecord | null) => {
+    if (isEditing && marker) {
+      setCoordinateEditMarkerId(marker.id);
+      setMovedMarkerCoordinate(null);
+      return;
+    }
+
+    setCoordinateEditMarkerId(null);
+    setMovedMarkerCoordinate(null);
+  }, []);
+
+  const handleMarkerDragged = useCallback((markerId: string, coordinate: MapCoordinate) => {
+    setCoordinateEditMarkerId(markerId);
+    setMovedMarkerCoordinate(coordinate);
+  }, []);
+
   useEffect(() => {
     setFilteredMarkerRecords([]);
     setMarkerCategories([]);
     setPoiPreview(cancelPoiPreview());
+    setCoordinateEditMarkerId(null);
+    setMovedMarkerCoordinate(null);
     clearPendingMarker();
   }, [clearPendingMarker, projectWorkspace?.currentProject.id]);
 
@@ -1017,9 +1059,12 @@ function App() {
                 markers={mapMarkers}
                 poiPreview={poiPreview}
                 selectedMarkerId={pendingMarker?.id ?? selectedMarkerId}
+                draggableMarkerId={coordinateEditMarkerId}
                 isMarkerCreationMode={isMarkerCreationMode}
                 pendingMarkerCoordinate={pendingMarker ? { lng: pendingMarker.lng, lat: pendingMarker.lat } : null}
+                movedMarkerCoordinate={movedMarkerCoordinate}
                 onSelectMarker={handleMapMarkerSelect}
+                onMarkerDragged={handleMarkerDragged}
                 onStartMarkerCreationMode={startMarkerCreationMode}
                 onCancelMarkerCreationMode={cancelMarkerCreationMode}
                 onCreateMarkerAtCoordinate={handleCreateMarkerAtCoordinate}
@@ -1055,13 +1100,17 @@ function App() {
               projectId={projectWorkspace.currentProject.id}
               marker={selectedMarkerRecord}
               pendingMarker={pendingMarker}
+              movedCoordinate={selectedMarkerRecord?.id === coordinateEditMarkerId ? movedMarkerCoordinate : null}
               onSaved={(marker) => {
                 clearPendingMarker();
+                setCoordinateEditMarkerId(null);
+                setMovedMarkerCoordinate(null);
                 setSelectedMarkerRecord(marker);
                 selectMarker(marker.id);
                 setMarkerListRefreshKey((currentKey) => currentKey + 1);
               }}
               onPendingCanceled={cancelMarkerCreationMode}
+              onEditModeChange={handleMarkerEditModeChange}
               onCreateMarkerRequest={startMarkerCreationMode}
               onCreateCategoryRequest={() => setActivePanel("settings")}
               onCreateTagRequest={() => setActivePanel("settings")}

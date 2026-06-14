@@ -1,4 +1,5 @@
 import type { MarkerRecord, MarkerUpdate } from "@/types/marker";
+import type { MapCoordinate } from "@/services/map-provider";
 
 export interface MarkerDetailFormState {
   name: string;
@@ -38,13 +39,21 @@ export function isMarkerDetailFormDirty(marker: MarkerRecord, formState: MarkerD
   );
 }
 
-export function buildMarkerUpdate(marker: MarkerRecord, formState: MarkerDetailFormState): MarkerUpdate {
+export function isMarkerCoordinateDirty(marker: MarkerRecord, coordinate: MapCoordinate | null) {
+  return Boolean(coordinate && (marker.lng !== coordinate.lng || marker.lat !== coordinate.lat));
+}
+
+export function buildMarkerUpdate(
+  marker: MarkerRecord,
+  formState: MarkerDetailFormState,
+  coordinate: MapCoordinate = { lng: marker.lng, lat: marker.lat },
+): MarkerUpdate {
   return {
     projectId: marker.projectId,
     markerId: marker.id,
     name: formState.name.trim(),
-    lng: marker.lng,
-    lat: marker.lat,
+    lng: coordinate.lng,
+    lat: coordinate.lat,
     address: formState.address.trim() || null,
     categoryId: formState.categoryId || null,
     tagIds: formState.tagIds,

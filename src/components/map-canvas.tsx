@@ -21,9 +21,12 @@ interface MapCanvasProps {
   markers: MapMarkerItem[];
   poiPreview: MapPoiPreview | null;
   selectedMarkerId: string | null;
+  draggableMarkerId: string | null;
   isMarkerCreationMode: boolean;
   pendingMarkerCoordinate: MapCoordinate | null;
+  movedMarkerCoordinate: MapCoordinate | null;
   onSelectMarker: (markerId: string) => void;
+  onMarkerDragged: (markerId: string, coordinate: MapCoordinate) => void;
   onStartMarkerCreationMode: () => void;
   onCancelMarkerCreationMode: () => void;
   onCreateMarkerAtCoordinate: (coordinate: MapCoordinate) => void;
@@ -39,9 +42,12 @@ export function MapCanvas({
   markers,
   poiPreview,
   selectedMarkerId,
+  draggableMarkerId,
   isMarkerCreationMode,
   pendingMarkerCoordinate,
+  movedMarkerCoordinate,
   onSelectMarker,
+  onMarkerDragged,
   onStartMarkerCreationMode,
   onCancelMarkerCreationMode,
   onCreateMarkerAtCoordinate,
@@ -146,6 +152,10 @@ export function MapCanvas({
   }, [selectedMarkerId]);
 
   useEffect(() => {
+    providerRef.current?.setDraggableMarker(draggableMarkerId);
+  }, [draggableMarkerId]);
+
+  useEffect(() => {
     providerRef.current?.setPoiPreview(poiPreview);
   }, [poiPreview]);
 
@@ -156,6 +166,14 @@ export function MapCanvas({
       providerRef.current?.setMarkerClickHandler(null);
     };
   }, [onSelectMarker]);
+
+  useEffect(() => {
+    providerRef.current?.setMarkerDragHandler(onMarkerDragged);
+
+    return () => {
+      providerRef.current?.setMarkerDragHandler(null);
+    };
+  }, [onMarkerDragged]);
 
   useEffect(() => {
     providerRef.current?.setMapClickHandler(isMarkerCreationMode ? onCreateMarkerAtCoordinate : null);
@@ -188,6 +206,12 @@ export function MapCanvas({
           <div className="flex h-9 items-center gap-2 rounded-md border border-primary/30 bg-white px-3 text-xs font-medium text-primary shadow-sm">
             <MapPin className="size-3.5" />
             {pendingMarkerCoordinate.lng.toFixed(5)}, {pendingMarkerCoordinate.lat.toFixed(5)}
+          </div>
+        ) : null}
+        {movedMarkerCoordinate ? (
+          <div className="flex h-9 items-center gap-2 rounded-md border border-amber-300 bg-white px-3 text-xs font-medium text-amber-700 shadow-sm">
+            <MapPin className="size-3.5" />
+            {movedMarkerCoordinate.lng.toFixed(5)}, {movedMarkerCoordinate.lat.toFixed(5)}
           </div>
         ) : null}
       </div>

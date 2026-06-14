@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildMarkerUpdate,
+  isMarkerCoordinateDirty,
   isMarkerDetailFormDirty,
   markerToFormState,
   validateMarkerDetailForm,
@@ -36,6 +37,26 @@ describe("marker detail form", () => {
       tagIds: ["tag-1", "tag-2"],
       note: "备注",
     });
+  });
+
+  it("builds a save request with moved coordinates without changing address", () => {
+    const currentMarker = marker();
+    const update = buildMarkerUpdate(currentMarker, markerToFormState(currentMarker), { lng: 121.6, lat: 31.3 });
+
+    expect(update).toMatchObject({
+      lng: 121.6,
+      lat: 31.3,
+      address: "原地址",
+      source: "manual",
+    });
+  });
+
+  it("detects coordinate changes separately from form fields", () => {
+    const currentMarker = marker();
+
+    expect(isMarkerCoordinateDirty(currentMarker, null)).toBe(false);
+    expect(isMarkerCoordinateDirty(currentMarker, { lng: 121.4737, lat: 31.2304 })).toBe(false);
+    expect(isMarkerCoordinateDirty(currentMarker, { lng: 121.6, lat: 31.3 })).toBe(true);
   });
 
   it("resets form state from the current marker for cancel", () => {

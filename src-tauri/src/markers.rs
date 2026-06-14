@@ -75,6 +75,15 @@ pub struct UpdateMarkerRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MoveMarkerRequest {
+    pub project_id: String,
+    pub marker_id: String,
+    pub lng: f64,
+    pub lat: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SoftDeleteMarkerRequest {
     pub project_id: String,
     pub marker_id: String,
@@ -118,6 +127,16 @@ pub async fn update_marker(
     let pool = state.pool.clone().ok_or_else(AppError::db)?;
 
     save_marker(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn move_marker(
+    state: tauri::State<'_, AppRuntimeState>,
+    request: MoveMarkerRequest,
+) -> Result<MarkerRecord, AppError> {
+    let pool = state.pool.clone().ok_or_else(AppError::db)?;
+
+    save_marker_position(&pool, request).await
 }
 
 #[tauri::command]
@@ -264,6 +283,38 @@ pub async fn save_marker(
     .map_err(AppError::from)?;
 
     replace_marker_tags(pool, &marker_id, &tag_ids).await?;
+
+    load_marker_by_id(pool, &project_id, &marker_id).await
+}
+
+pub async fn save_marker_position(
+    pool: &SqlitePool,
+    request: MoveMarkerRequest,
+) -> Result<MarkerRecord, AppError> {
+    let project_id = request.project_id;
+    let marker_id = request.marker_id;
+    validate_bd09_coordinate(request.lng, request.lat)?;
+    ensure_active_project(pool, &project_id).await?;
+    ensure_record_belongs_to_project(pool, "markers", &marker_id, &project_id).await?;
+
+    sqlx::query(
+        "UPDATE markers
+         SET lng = ?,
+             lat = ?,
+             coordinate_system = ?,
+             updated_at = datetime('now')
+         WHERE id = ?
+           AND project_id = ?
+           AND deleted_at IS NULL",
+    )
+    .bind(request.lng)
+    .bind(request.lat)
+    .bind(COORDINATE_SYSTEM_BD09)
+    .bind(&marker_id)
+    .bind(&project_id)
+    .execute(pool)
+    .await
+    .map_err(AppError::from)?;
 
     load_marker_by_id(pool, &project_id, &marker_id).await
 }
@@ -652,6 +703,55 @@ mod tests {
         assert_eq!(updated.address, Some("新地址".to_string()));
         assert_eq!(updated.note, Some("重点跟进".to_string()));
         assert_eq!(updated.source, "search");
+    }
+
+    #[tokio::test]
+    async fn moves_marker_coordinates_without_overwriting_address() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        insert_project_row(&pool, "project-1").await;
+        let marker = insert_marker(&pool, new_create_request("待移动点位", None))
+            .await
+            .expect("marker should be created");
+
+        let moved = save_marker_position(
+            &pool,
+            MoveMarkerRequest {
+                project_id: "project-1".to_string(),
+                marker_id: marker.id,
+                lng: 121.6,
+                lat: 31.3,
+            },
+        )
+        .await
+        .expect("marker should move");
+
+        assert_eq!(moved.lng, 121.6);
+        assert_eq!(moved.lat, 31.3);
+        assert_eq!(moved.address, Some("上海市黄浦区".to_string()));
+        assert_eq!(moved.source, "manual");
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_marker_move_coordinate() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        insert_project_row(&pool, "project-1").await;
+        let marker = insert_marker(&pool, new_create_request("错误移动", None))
+            .await
+            .expect("marker should be created");
+
+        let error = save_marker_position(
+            &pool,
+            MoveMarkerRequest {
+                project_id: "project-1".to_string(),
+                marker_id: marker.id,
+                lng: 121.6,
+                lat: 91.0,
+            },
+        )
+        .await
+        .expect_err("invalid move coordinate should fail");
+
+        assert_eq!(error.message, "坐标超出有效范围。");
     }
 
     #[tokio::test]

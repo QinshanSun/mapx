@@ -31,3 +31,10 @@ export interface MarkerDraft {
 export interface MarkerUpdate extends MarkerDraft {
   markerId: string;
 }
+
+export interface MarkerMoveInput {
+  projectId: string;
+  markerId: string;
+  lng: number;
+  lat: number;
+}

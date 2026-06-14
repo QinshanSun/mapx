@@ -142,6 +142,37 @@ describe("baidu map provider", () => {
     expect(onSelectMarker).toHaveBeenCalledWith("marker-1");
   });
 
+  it("only enables dragging for the requested marker and emits plain drag coordinates", async () => {
+    const fake = createFakeApi();
+    const onMarkerDragged = vi.fn();
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    provider.setMarkerDragHandler(onMarkerDragged);
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+    provider.setMarkers([
+      { id: "marker-1", name: "客户点位", lng: 121.47, lat: 31.23, color: "#2563eb", icon: "Users" },
+      { id: "marker-2", name: "仓库点位", lng: 121.48, lat: 31.24, color: "#f59e0b", icon: "Warehouse" },
+    ]);
+
+    expect(fake.markers[0].enableDragging).not.toHaveBeenCalled();
+    expect(fake.markers[1].enableDragging).not.toHaveBeenCalled();
+
+    provider.setDraggableMarker("marker-2");
+    fake.markers[3].triggerDragEnd({ point: { lng: 121.51, lat: 31.26 } });
+
+    expect(fake.markers[2].enableDragging).not.toHaveBeenCalled();
+    expect(fake.markers[3].enableDragging).toHaveBeenCalledTimes(1);
+    expect(onMarkerDragged).toHaveBeenCalledWith("marker-2", { lng: 121.51, lat: 31.26 });
+
+    provider.setDraggableMarker(null);
+
+    expect(fake.markers[4].enableDragging).not.toHaveBeenCalled();
+    expect(fake.markers[5].enableDragging).not.toHaveBeenCalled();
+  });
+
   it("emits plain coordinates only after a map click handler is registered", async () => {
     const fake = createFakeApi();
     const onCreateMarker = vi.fn();
@@ -350,12 +381,19 @@ class FakeIcon {
 
 class FakeMarker {
   private clickHandler: (() => void) | null = null;
+  private dragEndHandler: ((event?: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void) | null = null;
 
-  readonly addEventListener = vi.fn((eventName: string, handler: () => void) => {
+  readonly addEventListener = vi.fn((eventName: string, handler: (event?: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void) => {
     if (eventName === "click") {
-      this.clickHandler = handler;
+      this.clickHandler = () => handler();
+    }
+
+    if (eventName === "dragend") {
+      this.dragEndHandler = handler;
     }
   });
+  readonly disableDragging = vi.fn();
+  readonly enableDragging = vi.fn();
   readonly setTitle = vi.fn();
   readonly setZIndex = vi.fn();
 
@@ -366,5 +404,13 @@ class FakeMarker {
 
   triggerClick() {
     this.clickHandler?.();
+  }
+
+  triggerDragEnd(event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) {
+    this.dragEndHandler?.(event);
+  }
+
+  getPosition() {
+    return this.point;
   }
 }

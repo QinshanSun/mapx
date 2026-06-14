@@ -41,7 +41,9 @@ export interface MapProvider {
   getLayer(): MapLayer;
   setMarkers(markers: MapMarkerItem[]): void;
   setSelectedMarker(markerId: string | null): void;
+  setDraggableMarker(markerId: string | null): void;
   setPoiPreview(preview: MapPoiPreview | null): void;
   setMarkerClickHandler(handler: ((markerId: string) => void) | null): void;
+  setMarkerDragHandler(handler: ((markerId: string, coordinate: MapCoordinate) => void) | null): void;
   setMapClickHandler(handler: ((coordinate: MapCoordinate) => void) | null): void;
 }

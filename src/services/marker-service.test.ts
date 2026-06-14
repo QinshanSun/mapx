@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createMarker, listProjectMarkers, searchProjectMarkers } from "@/services/marker-service";
+import { createMarker, listProjectMarkers, moveMarker, searchProjectMarkers } from "@/services/marker-service";
 
 describe("marker service browser preview state", () => {
   it("keeps saved search markers visible in local list and search results", async () => {
@@ -38,5 +38,26 @@ describe("marker service browser preview state", () => {
     const searchResults = await searchProjectMarkers(projectId, "同名地点");
 
     expect(searchResults.filter((marker) => marker.name === "同名地点")).toHaveLength(2);
+  });
+
+  it("moves a preview marker without overwriting address or source", async () => {
+    const projectId = "preview-project-move-marker";
+    const marker = await createMarker({
+      projectId,
+      name: "可移动点位",
+      lng: 121.47,
+      lat: 31.23,
+      address: "原地址",
+      source: "manual",
+    });
+
+    const movedMarker = await moveMarker({ projectId, markerId: marker.id, lng: 121.6, lat: 31.3 });
+
+    expect(movedMarker).toMatchObject({
+      lng: 121.6,
+      lat: 31.3,
+      address: "原地址",
+      source: "manual",
+    });
   });
 });

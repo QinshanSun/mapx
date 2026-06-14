@@ -3,7 +3,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { PREVIEW_CATEGORIES } from "@/services/category-service";
 import { searchLocalMarkers } from "@/services/marker-search";
 import { callCommand } from "@/services/tauri-client";
-import type { MarkerDraft, MarkerRecord, MarkerUpdate } from "@/types/marker";
+import type { MarkerDraft, MarkerMoveInput, MarkerRecord, MarkerUpdate } from "@/types/marker";
 
 const previewNow = "2026-06-14T00:00:00Z";
 const previewMarkersByProject = new Map<string, MarkerRecord[]>();
@@ -46,6 +46,30 @@ export function updateMarker(update: MarkerUpdate) {
   }
 
   return callCommand<MarkerRecord>("update_marker", { request: update });
+}
+
+export function moveMarker(input: MarkerMoveInput) {
+  if (!isTauri()) {
+    const marker = getPreviewMarkers(input.projectId).find((currentMarker) => currentMarker.id === input.markerId);
+
+    if (!marker) {
+      return Promise.reject(new Error("MARKER_NOT_FOUND"));
+    }
+
+    const movedMarker = {
+      ...marker,
+      lng: input.lng,
+      lat: input.lat,
+      updatedAt: previewNow,
+    };
+    previewMarkersByProject.set(
+      input.projectId,
+      getPreviewMarkers(input.projectId).map((currentMarker) => (currentMarker.id === input.markerId ? movedMarker : currentMarker)),
+    );
+    return Promise.resolve(movedMarker);
+  }
+
+  return callCommand<MarkerRecord>("move_marker", { request: input });
 }
 
 export function softDeleteMarker(projectId: string, markerId: string) {

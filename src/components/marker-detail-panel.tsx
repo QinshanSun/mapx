@@ -12,12 +12,14 @@ import {
 } from "@/services/marker-creation";
 import {
   buildMarkerUpdate,
+  isMarkerCoordinateDirty,
   isMarkerDetailFormDirty,
   markerToFormState,
   validateMarkerDetailForm,
   type MarkerDetailFormState,
 } from "@/services/marker-detail-form";
-import { createMarker, updateMarker } from "@/services/marker-service";
+import type { MapCoordinate } from "@/services/map-provider";
+import { createMarker, moveMarker, updateMarker } from "@/services/marker-service";
 import { listProjectTags } from "@/services/tag-service";
 import type { CategoryRecord } from "@/types/category";
 import type { MarkerRecord } from "@/types/marker";
@@ -33,8 +35,10 @@ interface MarkerDetailPanelProps {
   projectId: string;
   marker: MarkerRecord | null;
   pendingMarker: PendingMarkerCreation | null;
+  movedCoordinate: MapCoordinate | null;
   onSaved: (marker: MarkerRecord) => void;
   onPendingCanceled: () => void;
+  onEditModeChange: (isEditing: boolean, marker: MarkerRecord | null) => void;
   onCreateMarkerRequest: () => void;
   onCreateCategoryRequest: () => void;
   onCreateTagRequest: () => void;
@@ -46,8 +50,10 @@ export function MarkerDetailPanel({
   projectId,
   marker,
   pendingMarker,
+  movedCoordinate,
   onSaved,
   onPendingCanceled,
+  onEditModeChange,
   onCreateMarkerRequest,
   onCreateCategoryRequest,
   onCreateTagRequest,
@@ -67,7 +73,9 @@ export function MarkerDetailPanel({
     () => tags.filter((tagItem) => marker?.tagIds.includes(tagItem.id)),
     [marker?.tagIds, tags],
   );
-  const isDirty = pendingMarker ? isPendingMarkerDirty(pendingMarker) : marker ? isEditing && isMarkerDetailFormDirty(marker, formState) : false;
+  const formDirty = marker ? isMarkerDetailFormDirty(marker, formState) : false;
+  const coordinateDirty = marker ? isMarkerCoordinateDirty(marker, movedCoordinate) : false;
+  const isDirty = pendingMarker ? isPendingMarkerDirty(pendingMarker) : marker ? isEditing && (formDirty || coordinateDirty) : false;
 
   useEffect(() => {
     let isActive = true;
@@ -110,6 +118,8 @@ export function MarkerDetailPanel({
 
   useEffect(() => () => onDirtyHandlersChange(null), [onDirtyHandlersChange]);
 
+  useEffect(() => () => onEditModeChange(false, marker), [marker, onEditModeChange]);
+
   async function saveCurrentMarker() {
     if (!marker) {
       throw new Error("没有可保存的点位。");
@@ -124,10 +134,15 @@ export function MarkerDetailPanel({
 
     setIsSaving(true);
     try {
-      const nextMarker = await updateMarker(buildMarkerUpdate(marker, formState));
+      const nextMarker = formDirty
+        ? await updateMarker(buildMarkerUpdate(marker, formState, movedCoordinate ?? undefined))
+        : coordinateDirty
+          ? await moveMarker({ projectId: marker.projectId, markerId: marker.id, lng: movedCoordinate!.lng, lat: movedCoordinate!.lat })
+          : marker;
       onSaved(nextMarker);
       setFormState(markerToFormState(nextMarker));
       setIsEditing(false);
+      onEditModeChange(false, nextMarker);
       setLocalError(null);
 
       return nextMarker;
@@ -169,6 +184,13 @@ export function MarkerDetailPanel({
   function discardChanges() {
     setFormState(markerToFormState(marker));
     setIsEditing(false);
+    onEditModeChange(false, marker);
+    setLocalError(null);
+  }
+
+  function restoreChanges() {
+    setFormState(markerToFormState(marker));
+    onEditModeChange(true, marker);
     setLocalError(null);
   }
 
@@ -266,7 +288,14 @@ export function MarkerDetailPanel({
               <p className="text-xs text-muted-foreground">点位</p>
               <h3 className="mt-1 truncate text-base font-semibold">{marker.name}</h3>
             </div>
-            <Button type="button" size="sm" onClick={() => setIsEditing(true)}>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                setIsEditing(true);
+                onEditModeChange(true, marker);
+              }}
+            >
               <Pencil />
               编辑
             </Button>
@@ -338,6 +367,19 @@ export function MarkerDetailPanel({
           />
         </div>
 
+        <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <dt className="text-xs text-muted-foreground">坐标</dt>
+            <dd className="mt-1 font-medium">
+              {(movedCoordinate?.lng ?? marker.lng).toFixed(6)}, {(movedCoordinate?.lat ?? marker.lat).toFixed(6)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">地址</dt>
+            <dd className="mt-1 truncate font-medium">{formState.address || "未填写"}</dd>
+          </div>
+        </dl>
+
         {localError ? <p className="mt-3 text-xs leading-5 text-red-600">{localError}</p> : null}
 
         <div className="mt-4 flex justify-end gap-2">
@@ -351,7 +393,7 @@ export function MarkerDetailPanel({
             <X />
             取消
           </Button>
-          <Button type="button" size="sm" variant="outline" disabled={isSaving} onClick={() => setFormState(markerToFormState(marker))}>
+          <Button type="button" size="sm" variant="outline" disabled={isSaving} onClick={restoreChanges}>
             <RotateCcw />
             恢复
           </Button>
