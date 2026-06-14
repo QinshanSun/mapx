@@ -7,10 +7,13 @@ import {
   Star,
   type LucideIcon,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useWorkspaceActionEvents } from "@/hooks/use-workspace-action-events";
+import { getBootstrapStatus } from "@/services/bootstrap-service";
 import { useWorkspaceStore } from "@/stores/workspace-store";
+import type { BootstrapStatus } from "@/types/bootstrap";
 import type { WorkspaceMarkerPreview, WorkspacePanel } from "@/types/workspace";
 
 const markerPreviews: WorkspaceMarkerPreview[] = [
@@ -51,10 +54,51 @@ function getDetailTitle(panel: WorkspacePanel) {
 }
 
 function App() {
+  const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapStatus | null>(null);
+
+  useEffect(() => {
+    let isActive = true;
+
+    getBootstrapStatus()
+      .then((status) => {
+        if (isActive) {
+          setBootstrapStatus(status);
+        }
+      })
+      .catch(() => {
+        if (isActive) {
+          setBootstrapStatus({
+            ready: false,
+            databasePath: null,
+            message: "无法读取 MapX 启动状态。",
+          });
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
   useWorkspaceActionEvents();
 
   const { activePanel, dispatchAction, lastActionNotice, selectedMarkerId, setActivePanel, selectMarker } =
     useWorkspaceStore();
+
+  if (!bootstrapStatus) {
+    return <BootstrapGate title="正在初始化本地数据库" message="MapX 正在准备本地 SQLite 工作区。" />;
+  }
+
+  if (!bootstrapStatus.ready) {
+    return (
+      <BootstrapGate
+        title="本地数据库初始化失败"
+        message={bootstrapStatus.message ?? "MapX 无法进入主界面，请检查本地数据目录后重启应用。"}
+        detail="为了避免写入不完整数据，主界面已暂停加载。"
+      />
+    );
+  }
+
   const selectedMarker = markerPreviews.find((marker) => marker.id === selectedMarkerId) ?? markerPreviews[0];
   const detailTitle = getDetailTitle(activePanel);
 
@@ -203,6 +247,27 @@ function App() {
             </section>
           </div>
         </aside>
+      </section>
+    </main>
+  );
+}
+
+function BootstrapGate({ title, message, detail }: { title: string; message: string; detail?: string }) {
+  return (
+    <main className="grid min-h-screen place-items-center bg-background p-8 text-foreground">
+      <section className="w-full max-w-lg rounded-lg border border-border bg-white p-6 shadow-sm">
+        <div className="mb-5 flex items-center gap-3">
+          <div className="grid size-10 place-items-center rounded-md bg-primary text-sm font-semibold text-primary-foreground">
+            MX
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold">MapX</h1>
+            <p className="text-xs text-muted-foreground">本地工作区启动检查</p>
+          </div>
+        </div>
+        <h2 className="text-base font-semibold">{title}</h2>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">{message}</p>
+        {detail ? <p className="mt-3 text-sm leading-6 text-muted-foreground">{detail}</p> : null}
       </section>
     </main>
   );

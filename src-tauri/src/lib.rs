@@ -1,8 +1,12 @@
+mod db;
+
 use serde::Serialize;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
-    Emitter,
+    Emitter, Manager,
 };
+
+use db::{AppRuntimeState, BootstrapStatus};
 
 const ACTION_PROJECT_NEW: &str = "project.new";
 const ACTION_SEARCH_FOCUS: &str = "search.focus";
@@ -25,10 +29,31 @@ fn health_check() -> &'static str {
     "ok"
 }
 
+#[tauri::command]
+fn get_bootstrap_status(state: tauri::State<AppRuntimeState>) -> BootstrapStatus {
+    let _pool_available = state.pool.is_some();
+    state.bootstrap_status.clone()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
+            let bootstrap_result =
+                tauri::async_runtime::block_on(db::bootstrap_database(app.handle()));
+            let runtime_state = match bootstrap_result {
+                Ok(database) => AppRuntimeState {
+                    bootstrap_status: BootstrapStatus::ready(database.database_path),
+                    pool: Some(database.pool),
+                },
+                Err(message) => AppRuntimeState {
+                    bootstrap_status: BootstrapStatus::failed(message),
+                    pool: None,
+                },
+            };
+
+            app.manage(runtime_state);
+
             let menu = MenuBuilder::new(app)
                 .item(&build_app_menu(app)?)
                 .item(&build_file_menu(app)?)
@@ -45,7 +70,7 @@ pub fn run() {
                 let _ = app.emit(MENU_ACTION_EVENT, MenuActionPayload { action_id });
             }
         })
-        .invoke_handler(tauri::generate_handler![health_check])
+        .invoke_handler(tauri::generate_handler![health_check, get_bootstrap_status])
         .run(tauri::generate_context!())
         .expect("failed to run MapX");
 }

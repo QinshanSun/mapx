@@ -11,7 +11,7 @@ See the V1 product and technical specification:
 
 ## Current Status
 
-The repository has the initial M1 foundation through `FND-005` and `QA-001`.
+The repository has the initial M1 foundation plus the first local data bootstrap through `DATA-001`.
 
 Implemented foundation:
 
@@ -22,6 +22,8 @@ Implemented foundation:
 - Three-column light workspace shell with map/detail placeholders
 - Zustand store structure plus `stores/`, `services/`, and `types/` frontend boundaries
 - Minimal desktop menu and shortcut action dispatch shell
+- SQLite connection bootstrap using system app data directory `MapX/mapx.sqlite`
+- Explicit migration baseline and frontend startup gate for migration failures
 - Basic scripts for development, typechecking, linting, frontend tests, frontend build, and Tauri build
 
 Last verified locally:
@@ -30,6 +32,9 @@ Last verified locally:
 - `npm run lint`
 - `npm run test`
 - `npm run build`
+- `cargo fmt --check`
+- `cargo check`
+- `cargo test`
 - `npm run tauri:build`
 - `npm run tauri:dev`
 - `npm audit --omit=dev`
@@ -39,7 +44,7 @@ Last verified locally:
 Work should continue from the M1 Foundation milestone in [docs/features-v1.md](docs/features-v1.md):
 
 1. `MAP-001` and `MAP-006`: run the Baidu Maps WebView/origin and allowlist spikes early to reduce integration risk.
-2. `DATA-001`: start SQLite migration and connection bootstrap once the foundation is stable.
+2. `DATA-002`: add the V1 core database schema migrations.
 3. `DATA-003`: establish structured backend error conventions before business commands grow.
 4. `QA-002`: add GitHub Actions CI so typecheck/lint/test can run automatically.
 
