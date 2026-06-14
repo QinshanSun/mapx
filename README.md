@@ -11,7 +11,7 @@ See the V1 product and technical specification:
 
 ## Current Status
 
-The repository has the initial M1 foundation plus the local data core through `DATA-003`.
+The repository has the initial M1 foundation plus the local data core through `DATA-004`.
 
 Implemented foundation:
 
@@ -26,6 +26,7 @@ Implemented foundation:
 - Explicit migration baseline and frontend startup gate for migration failures
 - V1 core SQLite schema for projects, settings, markers, categories, tags, marker tags, app settings, and backup metadata
 - Structured backend error codes with frontend Chinese message mapping
+- Backend validation helpers for required names, BD-09 coordinates, active records, and project ownership checks
 - Basic scripts for development, typechecking, linting, frontend tests, frontend build, and Tauri build
 
 Last verified locally:
@@ -46,9 +47,9 @@ Last verified locally:
 Work should continue from the M1 Foundation milestone in [docs/features-v1.md](docs/features-v1.md):
 
 1. `MAP-001` and `MAP-006`: run the Baidu Maps WebView/origin and allowlist spikes early to reduce integration risk.
-2. `DATA-004`: add backend validation helpers for names, coordinates, and soft-deleted records.
-3. `QA-002`: add GitHub Actions CI so typecheck/lint/test can run automatically.
-4. `SET-001`: begin the first-launch settings flow after backend validation helpers are in place.
+2. `QA-002`: add GitHub Actions CI so typecheck/lint/test can run automatically.
+3. `SET-001`: begin the first-launch settings flow after backend validation helpers are in place.
+4. `SET-002`: add the internal city list and default city picker.
 
 ## Development
 

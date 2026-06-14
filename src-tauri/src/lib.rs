@@ -1,5 +1,7 @@
 mod db;
 mod errors;
+#[allow(dead_code)]
+mod validation;
 
 use serde::Serialize;
 use tauri::{
