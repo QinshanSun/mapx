@@ -43,6 +43,19 @@ export function isMarkerCoordinateDirty(marker: MarkerRecord, coordinate: MapCoo
   return Boolean(coordinate && (marker.lng !== coordinate.lng || marker.lat !== coordinate.lat));
 }
 
+export function applyAutoReverseGeocodedAddress(formState: MarkerDetailFormState, address: string | null | undefined) {
+  const nextAddress = address?.trim();
+
+  if (!nextAddress || formState.address.trim()) {
+    return formState;
+  }
+
+  return {
+    ...formState,
+    address: nextAddress,
+  };
+}
+
 export function buildMarkerUpdate(
   marker: MarkerRecord,
   formState: MarkerDetailFormState,

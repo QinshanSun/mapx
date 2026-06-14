@@ -1098,6 +1098,7 @@ function App() {
                   : selectedMarkerRecord?.id ?? "empty-marker-detail"
               }
               projectId={projectWorkspace.currentProject.id}
+              baiduAk={firstLaunchSettings.baiduAk}
               marker={selectedMarkerRecord}
               pendingMarker={pendingMarker}
               movedCoordinate={selectedMarkerRecord?.id === coordinateEditMarkerId ? movedMarkerCoordinate : null}

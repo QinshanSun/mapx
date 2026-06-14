@@ -1,9 +1,10 @@
-import { Check, MapPin, Pencil, RotateCcw, X } from "lucide-react";
+import { Check, MapPin, Pencil, RefreshCw, RotateCcw, X } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { MarkerOverviewPanel } from "@/components/marker-overview-panel";
 import { Button } from "@/components/ui/button";
 import { listProjectCategories } from "@/services/category-service";
+import { getReverseGeocodeErrorMessage, reverseGeocodeBaiduAddress } from "@/services/baidu-reverse-geocode-provider";
 import {
   buildMarkerDraftFromPending,
   isPendingMarkerDirty,
@@ -11,6 +12,7 @@ import {
   type PendingMarkerCreation,
 } from "@/services/marker-creation";
 import {
+  applyAutoReverseGeocodedAddress,
   buildMarkerUpdate,
   isMarkerCoordinateDirty,
   isMarkerDetailFormDirty,
@@ -33,6 +35,7 @@ export interface MarkerDirtyHandlers {
 
 interface MarkerDetailPanelProps {
   projectId: string;
+  baiduAk: string | null;
   marker: MarkerRecord | null;
   pendingMarker: PendingMarkerCreation | null;
   movedCoordinate: MapCoordinate | null;
@@ -48,6 +51,7 @@ interface MarkerDetailPanelProps {
 
 export function MarkerDetailPanel({
   projectId,
+  baiduAk,
   marker,
   pendingMarker,
   movedCoordinate,
@@ -64,6 +68,8 @@ export function MarkerDetailPanel({
   const [tags, setTags] = useState<TagRecord[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [reverseGeocodeStatus, setReverseGeocodeStatus] = useState<"idle" | "loading" | "success" | "failed">("idle");
+  const [reverseGeocodeMessage, setReverseGeocodeMessage] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [formState, setFormState] = useState<MarkerDetailFormState>(() =>
     pendingMarker ? pendingMarkerToFormState(pendingMarker) : markerToFormState(marker),
@@ -76,6 +82,7 @@ export function MarkerDetailPanel({
   const formDirty = marker ? isMarkerDetailFormDirty(marker, formState) : false;
   const coordinateDirty = marker ? isMarkerCoordinateDirty(marker, movedCoordinate) : false;
   const isDirty = pendingMarker ? isPendingMarkerDirty(pendingMarker) : marker ? isEditing && (formDirty || coordinateDirty) : false;
+  const isReverseGeocoding = reverseGeocodeStatus === "loading";
 
   useEffect(() => {
     let isActive = true;
@@ -119,6 +126,58 @@ export function MarkerDetailPanel({
   useEffect(() => () => onDirtyHandlersChange(null), [onDirtyHandlersChange]);
 
   useEffect(() => () => onEditModeChange(false, marker), [marker, onEditModeChange]);
+
+  useEffect(() => {
+    const pendingSource = pendingMarker?.source;
+    const pendingLng = pendingMarker?.lng;
+    const pendingLat = pendingMarker?.lat;
+
+    if (
+      (pendingSource !== "manual" && pendingSource !== "center") ||
+      typeof pendingLng !== "number" ||
+      typeof pendingLat !== "number" ||
+      !Number.isFinite(pendingLng) ||
+      !Number.isFinite(pendingLat)
+    ) {
+      return;
+    }
+
+    const coordinate = { lng: pendingLng, lat: pendingLat };
+
+    let isActive = true;
+
+    queueMicrotask(() => {
+      if (!isActive) {
+        return;
+      }
+
+      setReverseGeocodeStatus("loading");
+      setReverseGeocodeMessage("正在获取地址...");
+    });
+
+    reverseGeocodeBaiduAddress({ baiduAk, coordinate })
+      .then((result) => {
+        if (!isActive) {
+          return;
+        }
+
+        setFormState((currentState) => applyAutoReverseGeocodedAddress(currentState, result.address));
+        setReverseGeocodeStatus("success");
+        setReverseGeocodeMessage("已获取地址。");
+      })
+      .catch((error) => {
+        if (!isActive) {
+          return;
+        }
+
+        setReverseGeocodeStatus("failed");
+        setReverseGeocodeMessage(getReverseGeocodeErrorMessage(error));
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [baiduAk, pendingMarker?.id, pendingMarker?.lat, pendingMarker?.lng, pendingMarker?.source]);
 
   async function saveCurrentMarker() {
     if (!marker) {
@@ -194,6 +253,28 @@ export function MarkerDetailPanel({
     setLocalError(null);
   }
 
+  async function refreshAddressFromCurrentCoordinate() {
+    if (!marker) {
+      return;
+    }
+
+    const coordinate = movedCoordinate ?? { lng: marker.lng, lat: marker.lat };
+
+    setReverseGeocodeStatus("loading");
+    setReverseGeocodeMessage("正在获取地址...");
+
+    try {
+      const result = await reverseGeocodeBaiduAddress({ baiduAk, coordinate });
+
+      setFormState((currentState) => ({ ...currentState, address: result.address ?? "" }));
+      setReverseGeocodeStatus("success");
+      setReverseGeocodeMessage("已更新地址。");
+    } catch (error) {
+      setReverseGeocodeStatus("failed");
+      setReverseGeocodeMessage(getReverseGeocodeErrorMessage(error));
+    }
+  }
+
   function cancelPendingMarker() {
     setLocalError(null);
     onPendingCanceled();
@@ -233,6 +314,11 @@ export function MarkerDetailPanel({
           </dl>
 
           {localError ? <p className="mt-3 text-xs leading-5 text-red-600">{localError}</p> : null}
+          {reverseGeocodeMessage ? (
+            <p className={`mt-3 text-xs leading-5 ${reverseGeocodeStatus === "failed" ? "text-amber-700" : "text-muted-foreground"}`}>
+              {reverseGeocodeMessage}
+            </p>
+          ) : null}
 
           <div className="mt-4 flex justify-end gap-2">
             <Button type="button" size="sm" variant="outline" disabled={isSaving} onClick={cancelPendingMarker}>
@@ -381,8 +467,17 @@ export function MarkerDetailPanel({
         </dl>
 
         {localError ? <p className="mt-3 text-xs leading-5 text-red-600">{localError}</p> : null}
+        {reverseGeocodeMessage ? (
+          <p className={`mt-3 text-xs leading-5 ${reverseGeocodeStatus === "failed" ? "text-amber-700" : "text-muted-foreground"}`}>
+            {reverseGeocodeMessage}
+          </p>
+        ) : null}
 
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <Button type="button" size="sm" variant="outline" disabled={isSaving || isReverseGeocoding} onClick={refreshAddressFromCurrentCoordinate}>
+            <RefreshCw />
+            重新获取地址
+          </Button>
           <Button
             type="button"
             size="sm"

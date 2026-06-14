@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyAutoReverseGeocodedAddress,
   buildMarkerUpdate,
   isMarkerCoordinateDirty,
   isMarkerDetailFormDirty,
@@ -49,6 +50,17 @@ describe("marker detail form", () => {
       address: "原地址",
       source: "manual",
     });
+  });
+
+  it("applies automatic reverse geocoding only when the address is still empty", () => {
+    const emptyAddressState = { ...markerToFormState(marker()), address: "" };
+    const manualAddressState = { ...markerToFormState(marker()), address: "用户手写地址" };
+
+    expect(applyAutoReverseGeocodedAddress(emptyAddressState, " 上海市黄浦区 ")).toMatchObject({
+      address: "上海市黄浦区",
+    });
+    expect(applyAutoReverseGeocodedAddress(manualAddressState, "上海市浦东新区")).toBe(manualAddressState);
+    expect(applyAutoReverseGeocodedAddress(emptyAddressState, "   ")).toBe(emptyAddressState);
   });
 
   it("detects coordinate changes separately from form fields", () => {
