@@ -1,4 +1,5 @@
 mod db;
+mod errors;
 
 use serde::Serialize;
 use tauri::{
@@ -7,6 +8,7 @@ use tauri::{
 };
 
 use db::{AppRuntimeState, BootstrapStatus};
+use errors::AppError;
 
 const ACTION_PROJECT_NEW: &str = "project.new";
 const ACTION_SEARCH_FOCUS: &str = "search.focus";
@@ -33,6 +35,16 @@ fn health_check() -> &'static str {
 fn get_bootstrap_status(state: tauri::State<AppRuntimeState>) -> BootstrapStatus {
     let _pool_available = state.pool.is_some();
     state.bootstrap_status.clone()
+}
+
+#[tauri::command]
+fn structured_error_example(kind: &str) -> Result<&'static str, AppError> {
+    match kind {
+        "validation" => Err(AppError::validation("名称不能为空。")),
+        "db" => Err(AppError::from(sqlx::Error::RowNotFound)),
+        "project" => Err(AppError::project_not_found()),
+        _ => Ok("ok"),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -70,7 +82,11 @@ pub fn run() {
                 let _ = app.emit(MENU_ACTION_EVENT, MenuActionPayload { action_id });
             }
         })
-        .invoke_handler(tauri::generate_handler![health_check, get_bootstrap_status])
+        .invoke_handler(tauri::generate_handler![
+            health_check,
+            get_bootstrap_status,
+            structured_error_example
+        ])
         .run(tauri::generate_context!())
         .expect("failed to run MapX");
 }
