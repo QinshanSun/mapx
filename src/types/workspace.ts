@@ -1,4 +1,4 @@
-export type WorkspacePanel = "overview" | "markers" | "settings" | "about";
+export type WorkspacePanel = "overview" | "markers" | "search" | "settings" | "about";
 
 export type ConnectionStatus = "online" | "offline" | "missing-ak";
 

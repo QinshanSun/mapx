@@ -23,6 +23,7 @@ import { FirstLaunchFlow } from "@/components/first-launch-flow";
 import { MapCanvas } from "@/components/map-canvas";
 import { MarkerDetailPanel, type MarkerDirtyHandlers } from "@/components/marker-detail-panel";
 import { MarkerListPanel } from "@/components/marker-list-panel";
+import { SearchPanel } from "@/components/search-panel";
 import { SettingsPanel } from "@/components/settings-panel";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceActionEvents } from "@/hooks/use-workspace-action-events";
@@ -34,6 +35,7 @@ import {
   createPendingMarkerFromMapClick,
   type PendingMarkerCreation,
 } from "@/services/marker-creation";
+import type { MarkerListFilters } from "@/services/marker-list";
 import { buildMapMarkerItems, findMarkerById } from "@/services/map-marker-render";
 import type { MapCoordinate, MapMarkerItem } from "@/services/map-provider";
 import {
@@ -58,6 +60,7 @@ import type { WorkspaceActionId, WorkspaceActionSource } from "@/types/workspace
 const navItems: Array<{ panel: WorkspacePanel; label: string; icon: LucideIcon }> = [
   { panel: "overview", label: "项目概览", icon: FolderOpen },
   { panel: "markers", label: "点位管理", icon: MapPinned },
+  { panel: "search", label: "搜索", icon: Search },
   { panel: "settings", label: "设置", icon: Settings },
   { panel: "about", label: "关于", icon: CircleHelp },
 ];
@@ -66,6 +69,8 @@ function getDetailTitle(panel: WorkspacePanel) {
   switch (panel) {
     case "markers":
       return "点位详情";
+    case "search":
+      return "搜索结果";
     case "settings":
       return "设置入口";
     case "about":
@@ -101,6 +106,11 @@ function App() {
   const [selectedMarkerRecord, setSelectedMarkerRecord] = useState<MarkerRecord | null>(null);
   const [filteredMarkerRecords, setFilteredMarkerRecords] = useState<MarkerRecord[]>([]);
   const [markerCategories, setMarkerCategories] = useState<CategoryRecord[]>([]);
+  const [markerListFilters, setMarkerListFilters] = useState<MarkerListFilters>({
+    categoryId: "all",
+    tagId: "all",
+    sortKey: "updatedDesc",
+  });
   const [markerListRefreshKey, setMarkerListRefreshKey] = useState(0);
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | null>(null);
   const [isProjectSaving, setIsProjectSaving] = useState(false);
@@ -256,6 +266,14 @@ function App() {
       });
     },
     [filteredMarkerRecords, runWithMarkerDirtyGuard, selectMarker],
+  );
+
+  const selectMarkerRecord = useCallback(
+    (marker: MarkerRecord) => {
+      selectMarker(marker.id);
+      setSelectedMarkerRecord(marker);
+    },
+    [selectMarker],
   );
 
   const clearPendingMarker = useCallback(() => {
@@ -904,16 +922,27 @@ function App() {
                 projectId={projectWorkspace.currentProject.id}
                 selectedMarkerId={selectedMarkerId}
                 refreshKey={markerListRefreshKey}
+                filters={markerListFilters}
                 onSelectMarker={(marker) => {
                   runWithMarkerDirtyGuard({
                     message: "切换点位前，当前点位还有未保存的修改。",
-                    run: () => {
-                      selectMarker(marker.id);
-                      setSelectedMarkerRecord(marker);
-                    },
+                    run: () => selectMarkerRecord(marker),
                   });
                 }}
+                onFiltersChange={setMarkerListFilters}
                 onFilteredMarkersChange={handleFilteredMarkersChange}
+                onError={(error) => setProjectActionError(getBackendErrorMessage(error))}
+              />
+            ) : activePanel === "search" ? (
+              <SearchPanel
+                projectId={projectWorkspace.currentProject.id}
+                selectedMarkerId={selectedMarkerId}
+                onSelectMarker={(marker) => {
+                  runWithMarkerDirtyGuard({
+                    message: "打开搜索结果前，当前点位还有未保存的修改。",
+                    run: () => selectMarkerRecord(marker),
+                  });
+                }}
                 onError={(error) => setProjectActionError(getBackendErrorMessage(error))}
               />
             ) : null}
@@ -974,6 +1003,16 @@ function App() {
               onError={(error) => setProjectActionError(getBackendErrorMessage(error))}
               onDirtyHandlersChange={handleMarkerDirtyHandlersChange}
             />
+          ) : activePanel === "search" ? (
+            <div className="space-y-4 p-5">
+              <section className="rounded-lg border border-border p-4 text-sm leading-6 text-muted-foreground">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-foreground">我的点位</h3>
+                  <Search className="size-4" />
+                </div>
+                <p>从左侧搜索结果选择点位后，MapX 会打开点位详情并同步地图选中态。</p>
+              </section>
+            </div>
           ) : activePanel === "settings" ? (
             <SettingsPanel
               settings={firstLaunchSettings}

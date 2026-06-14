@@ -25,6 +25,21 @@ describe("workspace store", () => {
     expect(store.getState().activePanel).toBe("markers");
   });
 
+  it("keeps marker selection and search tab state separate from marker list navigation", () => {
+    const store = createTestStore();
+
+    store.getState().setActivePanel("markers");
+    store.getState().dispatchAction("search.focus", "button");
+
+    expect(store.getState().activePanel).toBe("search");
+    expect(store.getState().selectedMarkerId).toBeNull();
+
+    store.getState().selectMarker("mk-002");
+
+    expect(store.getState().activePanel).toBe("markers");
+    expect(store.getState().selectedMarkerId).toBe("mk-002");
+  });
+
   it("switches workspace panels without changing the selected marker", () => {
     const store = createTestStore();
 
@@ -40,7 +55,7 @@ describe("workspace store", () => {
 
     store.getState().dispatchAction("search.focus", "shortcut");
 
-    expect(store.getState().activePanel).toBe("markers");
+    expect(store.getState().activePanel).toBe("search");
     expect(store.getState().lastActionNotice).toMatchObject({
       id: "search.focus",
       label: "搜索",

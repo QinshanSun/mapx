@@ -34,7 +34,7 @@ export const createWorkspaceState: StateCreator<WorkspaceState> = (set) => ({
       };
 
       if (actionId === "search.focus") {
-        nextState.activePanel = "markers";
+        nextState.activePanel = "search";
       }
 
       if (actionId === "mode.cancel" || actionId === "view.overview") {
@@ -62,7 +62,7 @@ function buildActionMessage(actionId: WorkspaceActionId, selectedMarkerId: strin
     case "project.new":
       return "已打开新建项目表单。";
     case "search.focus":
-      return "搜索入口已收到，后续搜索 issue 会接入本地和百度 POI 搜索。";
+      return "已切换到搜索。";
     case "changes.save":
       return "保存入口已收到，后续表单和 SQLite issue 会接入真实保存。";
     case "mode.cancel":

@@ -1,10 +1,9 @@
-import { Filter, ListFilter, MapPin, Search, SlidersHorizontal } from "lucide-react";
+import { Filter, ListFilter, MapPin, SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { listProjectCategories } from "@/services/category-service";
 import { filterAndSortMarkers, type MarkerListFilters, type MarkerSortKey } from "@/services/marker-list";
 import { listProjectMarkers } from "@/services/marker-service";
-import { searchLocalMarkers } from "@/services/marker-search";
 import { listProjectTags } from "@/services/tag-service";
 import type { CategoryRecord } from "@/types/category";
 import type { MarkerRecord } from "@/types/marker";
@@ -18,7 +17,9 @@ interface MarkerListPanelProps {
   projectId: string;
   selectedMarkerId: string | null;
   refreshKey: number;
+  filters: MarkerListFilters;
   onSelectMarker: (marker: MarkerRecord) => void;
+  onFiltersChange: (filters: MarkerListFilters) => void;
   onFilteredMarkersChange: (markers: MarkerRecord[], categories: CategoryRecord[]) => void;
   onError: (error: unknown) => void;
 }
@@ -27,22 +28,18 @@ export function MarkerListPanel({
   projectId,
   selectedMarkerId,
   refreshKey,
+  filters,
   onSelectMarker,
+  onFiltersChange,
   onFilteredMarkersChange,
   onError,
 }: MarkerListPanelProps) {
   const [markers, setMarkers] = useState<MarkerRecord[]>([]);
   const [categories, setCategories] = useState<CategoryRecord[]>([]);
   const [tags, setTags] = useState<TagRecord[]>([]);
-  const [searchKeyword, setSearchKeyword] = useState("");
-  const [filters, setFilters] = useState<MarkerListFilters>({ categoryId: "all", tagId: "all", sortKey: "updatedDesc" });
   const [scrollTop, setScrollTop] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
-  const searchedMarkers = useMemo(
-    () => searchLocalMarkers(markers, categories, tags, searchKeyword),
-    [categories, markers, searchKeyword, tags],
-  );
-  const filteredMarkers = useMemo(() => filterAndSortMarkers(searchedMarkers, filters), [filters, searchedMarkers]);
+  const filteredMarkers = useMemo(() => filterAndSortMarkers(markers, filters), [filters, markers]);
   const totalHeight = filteredMarkers.length * rowHeight;
   const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
   const endIndex = Math.min(filteredMarkers.length, Math.ceil((scrollTop + viewportHeight) / rowHeight) + overscan);
@@ -77,12 +74,7 @@ export function MarkerListPanel({
   }, [categories, filteredMarkers, onFilteredMarkersChange]);
 
   function updateFilter(nextFilters: Partial<MarkerListFilters>) {
-    setFilters((currentFilters) => ({ ...currentFilters, ...nextFilters }));
-    setScrollTop(0);
-  }
-
-  function updateSearchKeyword(keyword: string) {
-    setSearchKeyword(keyword);
+    onFiltersChange({ ...filters, ...nextFilters });
     setScrollTop(0);
   }
 
@@ -98,19 +90,6 @@ export function MarkerListPanel({
         </div>
 
         <div className="grid gap-2">
-          <label className="text-xs font-medium text-muted-foreground" htmlFor="marker-local-search">
-            本地搜索
-          </label>
-          <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-background px-2 focus-within:border-primary">
-            <Search className="size-4 text-muted-foreground" />
-            <input
-              id="marker-local-search"
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none"
-              value={searchKeyword}
-              onChange={(event) => updateSearchKeyword(event.target.value)}
-            />
-          </div>
-
           <label className="text-xs font-medium text-muted-foreground" htmlFor="marker-category-filter">
             分类
           </label>
@@ -200,7 +179,7 @@ export function MarkerListPanel({
           })}
 
           {!isLoading && filteredMarkers.length === 0 ? (
-            <div className="p-5 text-sm leading-6 text-muted-foreground">当前搜索或筛选条件下没有点位。</div>
+            <div className="p-5 text-sm leading-6 text-muted-foreground">当前筛选条件下没有点位。</div>
           ) : null}
         </div>
       </div>
