@@ -11,7 +11,7 @@ See the V1 product and technical specification:
 
 ## Current Status
 
-The repository has the initial M1 foundation plus the first local data bootstrap through `DATA-001`.
+The repository has the initial M1 foundation plus the local data core schema through `DATA-002`.
 
 Implemented foundation:
 
@@ -24,6 +24,7 @@ Implemented foundation:
 - Minimal desktop menu and shortcut action dispatch shell
 - SQLite connection bootstrap using system app data directory `MapX/mapx.sqlite`
 - Explicit migration baseline and frontend startup gate for migration failures
+- V1 core SQLite schema for projects, settings, markers, categories, tags, marker tags, app settings, and backup metadata
 - Basic scripts for development, typechecking, linting, frontend tests, frontend build, and Tauri build
 
 Last verified locally:
@@ -44,9 +45,9 @@ Last verified locally:
 Work should continue from the M1 Foundation milestone in [docs/features-v1.md](docs/features-v1.md):
 
 1. `MAP-001` and `MAP-006`: run the Baidu Maps WebView/origin and allowlist spikes early to reduce integration risk.
-2. `DATA-002`: add the V1 core database schema migrations.
-3. `DATA-003`: establish structured backend error conventions before business commands grow.
-4. `QA-002`: add GitHub Actions CI so typecheck/lint/test can run automatically.
+2. `DATA-003`: establish structured backend error conventions before business commands grow.
+3. `QA-002`: add GitHub Actions CI so typecheck/lint/test can run automatically.
+4. `SET-001`: begin the first-launch settings flow after backend errors are structured.
 
 ## Development
 

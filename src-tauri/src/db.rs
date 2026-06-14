@@ -105,6 +105,161 @@ mod tests {
             .await
             .expect("migration table should exist");
 
-        assert_eq!(migration_count, 1);
+        assert_eq!(migration_count, 2);
+    }
+
+    #[tokio::test]
+    async fn bootstrap_creates_v1_core_tables_only() {
+        let (_temp_dir, database) = create_test_database().await;
+        let table_names: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '_sqlx_%' ORDER BY name",
+        )
+        .fetch_all(&database.pool)
+        .await
+        .expect("schema tables should be readable");
+
+        assert_eq!(
+            table_names,
+            vec![
+                "app_settings",
+                "backup_metadata",
+                "categories",
+                "marker_tags",
+                "markers",
+                "project_settings",
+                "projects",
+                "tags",
+            ]
+        );
+
+        let tables_with_deleted_at: Vec<String> = sqlx::query_scalar(
+            "SELECT m.name
+             FROM sqlite_master m
+             WHERE m.type = 'table'
+               AND m.name NOT LIKE '_sqlx_%'
+               AND EXISTS (SELECT 1 FROM pragma_table_info(m.name) WHERE name = 'created_at')
+               AND EXISTS (SELECT 1 FROM pragma_table_info(m.name) WHERE name = 'updated_at')
+               AND EXISTS (SELECT 1 FROM pragma_table_info(m.name) WHERE name = 'deleted_at')
+             ORDER BY m.name",
+        )
+        .fetch_all(&database.pool)
+        .await
+        .expect("timestamp fields should be inspectable");
+
+        assert_eq!(tables_with_deleted_at, table_names);
+    }
+
+    #[tokio::test]
+    async fn category_and_tag_names_are_unique_per_project_until_soft_deleted() {
+        let (_temp_dir, database) = create_test_database().await;
+        insert_project(&database.pool, "project-1").await;
+
+        insert_category(&database.pool, "category-1", "project-1", "客户", None).await;
+        let duplicate_category = sqlx::query(
+            "INSERT INTO categories (id, project_id, name, color, icon, sort_order, created_at, updated_at, deleted_at)
+             VALUES ('category-2', 'project-1', '客户', '#2563eb', 'Building2', 2, ?, ?, NULL)",
+        )
+        .bind(now())
+        .bind(now())
+        .execute(&database.pool)
+        .await;
+
+        assert!(duplicate_category.is_err());
+
+        sqlx::query("UPDATE categories SET deleted_at = ? WHERE id = 'category-1'")
+            .bind(now())
+            .execute(&database.pool)
+            .await
+            .expect("soft delete category");
+        insert_category(&database.pool, "category-3", "project-1", "客户", None).await;
+
+        insert_tag(&database.pool, "tag-1", "project-1", "重点", None).await;
+        let duplicate_tag = sqlx::query(
+            "INSERT INTO tags (id, project_id, name, created_at, updated_at, deleted_at)
+             VALUES ('tag-2', 'project-1', '重点', ?, ?, NULL)",
+        )
+        .bind(now())
+        .bind(now())
+        .execute(&database.pool)
+        .await;
+
+        assert!(duplicate_tag.is_err());
+
+        sqlx::query("UPDATE tags SET deleted_at = ? WHERE id = 'tag-1'")
+            .bind(now())
+            .execute(&database.pool)
+            .await
+            .expect("soft delete tag");
+        insert_tag(&database.pool, "tag-3", "project-1", "重点", None).await;
+    }
+
+    async fn create_test_database() -> (tempfile::TempDir, BootstrappedDatabase) {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let database = bootstrap_database_in(temp_dir.path().to_path_buf())
+            .await
+            .expect("database bootstrap should succeed");
+
+        (temp_dir, database)
+    }
+
+    async fn insert_project(pool: &SqlitePool, project_id: &str) {
+        sqlx::query(
+            "INSERT INTO projects (id, name, created_at, updated_at, deleted_at)
+             VALUES (?, '测试项目', ?, ?, NULL)",
+        )
+        .bind(project_id)
+        .bind(now())
+        .bind(now())
+        .execute(pool)
+        .await
+        .expect("insert project");
+    }
+
+    async fn insert_category(
+        pool: &SqlitePool,
+        category_id: &str,
+        project_id: &str,
+        name: &str,
+        deleted_at: Option<&str>,
+    ) {
+        sqlx::query(
+            "INSERT INTO categories (id, project_id, name, color, icon, sort_order, created_at, updated_at, deleted_at)
+             VALUES (?, ?, ?, '#2563eb', 'Building2', 1, ?, ?, ?)",
+        )
+        .bind(category_id)
+        .bind(project_id)
+        .bind(name)
+        .bind(now())
+        .bind(now())
+        .bind(deleted_at)
+        .execute(pool)
+        .await
+        .expect("insert category");
+    }
+
+    async fn insert_tag(
+        pool: &SqlitePool,
+        tag_id: &str,
+        project_id: &str,
+        name: &str,
+        deleted_at: Option<&str>,
+    ) {
+        sqlx::query(
+            "INSERT INTO tags (id, project_id, name, created_at, updated_at, deleted_at)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(tag_id)
+        .bind(project_id)
+        .bind(name)
+        .bind(now())
+        .bind(now())
+        .bind(deleted_at)
+        .execute(pool)
+        .await
+        .expect("insert tag");
+    }
+
+    fn now() -> &'static str {
+        "2026-06-14T09:30:00Z"
     }
 }
