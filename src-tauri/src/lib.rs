@@ -1,6 +1,7 @@
 mod cities;
 mod db;
 mod errors;
+mod markers;
 mod projects;
 mod settings;
 mod taxonomy;
@@ -98,6 +99,10 @@ pub fn run() {
             projects::create_project,
             projects::get_project_workspace,
             projects::select_project_workspace,
+            markers::create_marker,
+            markers::list_project_markers,
+            markers::soft_delete_marker,
+            markers::update_marker,
             health_check,
             get_bootstrap_status,
             structured_error_example

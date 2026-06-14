@@ -11,7 +11,7 @@ See the V1 product and technical specification:
 
 ## Current Status
 
-The repository has the initial M1 foundation, the local data core through `DATA-004`, settings work through `SET-003`, project workspace work through `PROJ-002`, and taxonomy defaults through `TAX-001`.
+The repository has the initial M1 foundation, the local data core through `DATA-004`, settings work through `SET-003`, project workspace work through `PROJ-002`, taxonomy defaults through `TAX-001`, and marker data commands through `MRK-001`.
 
 Implemented foundation:
 
@@ -34,6 +34,8 @@ Implemented foundation:
 - Default project auto-creation for `我的项目` with city-based search city, map center, zoom, and `normal` map layer
 - Current project workspace loading, project switcher, and project creation flow
 - Default categories for new projects: `客户`、`门店`、`仓库`、`竞品`、`候选点`
+- Marker create/list/update/soft delete backend commands with BD-09 coordinate validation
+- Frontend marker service and types for future list/detail UI integration
 - Basic scripts for development, typechecking, linting, frontend tests, frontend build, and Tauri build
 
 Last verified locally:
@@ -56,10 +58,9 @@ Note: the full default `npm run tauri:build` currently builds the release binary
 
 Work should continue from the M2 Local Workspace milestone in [docs/features-v1.md](docs/features-v1.md):
 
-1. `MRK-001`: add marker repository and commands.
-2. `MRK-002`: build the marker list with filters and sorting.
-3. `MRK-003`: build marker detail and edit form.
-4. `TAX-002`: build category management UI and commands.
+1. `MRK-002`: build the marker list with filters and sorting.
+2. `MRK-003`: build marker detail and edit form.
+3. `TAX-002`: build category management UI and commands.
 
 ## Development
 
