@@ -1,5 +1,6 @@
 import { loadBaiduMapScript, type BaiduMapLoadResult } from "@/services/baidu-map-loader";
 import { readBaiduMapRuntime } from "@/services/baidu-map-provider";
+import { CHINA_CITIES } from "@/data/china-cities";
 
 const BAIDU_SUCCESS_STATUS = 0;
 const DEFAULT_PAGE_SIZE = 10;
@@ -114,8 +115,35 @@ export class BaiduPoiSearchProvider {
     scope: BaiduPoiSearchScope,
     pageSize: number,
   ) {
+    if (scope.type === "national") {
+      return this.searchAcrossCities(runtime, keyword, pageSize);
+    }
+
+    return this.searchLocation(runtime, keyword, scope.city, pageSize);
+  }
+
+  private async searchAcrossCities(runtime: BaiduPoiSearchRuntime, keyword: string, pageSize: number) {
+    const results: BaiduPoiResult[] = [];
+
+    for (const city of CHINA_CITIES) {
+      const nextResults = await this.searchLocation(runtime, keyword, city.name, Math.min(DEFAULT_PAGE_SIZE, pageSize));
+      results.push(...nextResults.filter((result) => !results.some((existingResult) => existingResult.id === result.id)));
+
+      if (results.length >= pageSize) {
+        return results.slice(0, pageSize);
+      }
+    }
+
+    return results;
+  }
+
+  private searchLocation(
+    runtime: BaiduPoiSearchRuntime,
+    keyword: string,
+    location: string,
+    pageSize: number,
+  ) {
     return new Promise<BaiduPoiResult[]>((resolve, reject) => {
-      const location = scope.type === "city" ? scope.city : "全国";
       let settled = false;
       const search = new runtime.api.LocalSearch(location, {
         pageCapacity: pageSize,

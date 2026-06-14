@@ -33,17 +33,25 @@ describe("baidu poi search provider", () => {
     expect(fake.localSearches[0].search).toHaveBeenCalledWith("人民广场");
   });
 
-  it("uses the national scope only after it is explicitly requested", async () => {
-    const fake = createFakePoiRuntime([]);
+  it("expands national scope by searching supported cities only after it is explicitly requested", async () => {
+    const fake = createFakePoiRuntime([
+      {
+        uid: "hospital-1",
+        title: "城市医院",
+        address: "测试路 1 号",
+        city: "测试城市",
+        point: { lng: 121, lat: 31 },
+      },
+    ]);
     const provider = new BaiduPoiSearchProvider({
       loadScript: () => Promise.resolve({ status: "loaded" }),
       getGlobal: () => fake.runtime,
     });
 
     await provider.search({ baiduAk: "test-ak", keyword: "医院", scope: { type: "city", city: "杭州" } });
-    await provider.search({ baiduAk: "test-ak", keyword: "医院", scope: { type: "national" } });
+    await provider.search({ baiduAk: "test-ak", keyword: "医院", scope: { type: "national" }, pageSize: 1 });
 
-    expect(fake.localSearches.map((search) => search.location)).toEqual(["杭州", "全国"]);
+    expect(fake.localSearches.map((search) => search.location)).toEqual(["杭州", "上海"]);
   });
 
   it("fails clearly when AK or Baidu search runtime is unavailable", async () => {
