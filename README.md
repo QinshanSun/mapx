@@ -11,7 +11,7 @@ See the V1 product and technical specification:
 
 ## Current Status
 
-The repository has the initial M1 foundation, the local data core through `DATA-004`, and settings work through `SET-003`.
+The repository has the initial M1 foundation, the local data core through `DATA-004`, settings work through `SET-003`, and project workspace work through `PROJ-001`.
 
 Implemented foundation:
 
@@ -31,6 +31,8 @@ Implemented foundation:
 - First-launch settings flow with Shanghai as the default city and optional Baidu AK entry
 - Built-in China city list with city-level center coordinates and default city pickers
 - Settings page essentials for Baidu AK save/clear, app/data directory information, and opening the data directory
+- Default project auto-creation for `我的项目` with city-based search city, map center, zoom, and `normal` map layer
+- Current project workspace loading and lightweight project list/current project display
 - Basic scripts for development, typechecking, linting, frontend tests, frontend build, and Tauri build
 
 Last verified locally:
@@ -51,12 +53,12 @@ Note: the full default `npm run tauri:build` currently builds the release binary
 
 ## Recommended Next Steps
 
-Work should continue from the M1 Foundation milestone in [docs/features-v1.md](docs/features-v1.md):
+Work should continue from the M2 Local Workspace milestone in [docs/features-v1.md](docs/features-v1.md):
 
-1. `PROJ-001`: auto-create the default project and settings.
-2. `PROJ-002`: build the project switcher and create project flow.
-3. `TAX-001`: create default categories for new projects.
-4. `MRK-001`: add marker repository and commands.
+1. `PROJ-002`: build the project switcher and create project flow.
+2. `TAX-001`: create default categories for new projects.
+3. `MRK-001`: add marker repository and commands.
+4. `MRK-002`: build the marker list with filters and sorting.
 
 ## Development
 

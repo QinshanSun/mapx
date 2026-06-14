@@ -15,9 +15,11 @@ import { Button } from "@/components/ui/button";
 import { useWorkspaceActionEvents } from "@/hooks/use-workspace-action-events";
 import { getBackendErrorMessage } from "@/services/backend-error";
 import { getBootstrapStatus } from "@/services/bootstrap-service";
+import { getProjectWorkspace } from "@/services/project-service";
 import { getFirstLaunchSettings } from "@/services/settings-service";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { BootstrapStatus } from "@/types/bootstrap";
+import type { ProjectWorkspace } from "@/types/project";
 import type { FirstLaunchSettings } from "@/types/settings";
 import type { WorkspaceMarkerPreview, WorkspacePanel } from "@/types/workspace";
 
@@ -61,6 +63,7 @@ function getDetailTitle(panel: WorkspacePanel) {
 function App() {
   const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapStatus | null>(null);
   const [firstLaunchSettings, setFirstLaunchSettings] = useState<FirstLaunchSettings | null>(null);
+  const [projectWorkspace, setProjectWorkspace] = useState<ProjectWorkspace | null>(null);
   const [firstLaunchError, setFirstLaunchError] = useState<string | null>(null);
   const handleSettingsError = useCallback((error: unknown) => {
     setFirstLaunchError(getBackendErrorMessage(error));
@@ -114,6 +117,30 @@ function App() {
     };
   }, [bootstrapStatus]);
 
+  useEffect(() => {
+    if (!firstLaunchSettings?.completed) {
+      return;
+    }
+
+    let isActive = true;
+
+    getProjectWorkspace()
+      .then((workspace) => {
+        if (isActive) {
+          setProjectWorkspace(workspace);
+        }
+      })
+      .catch((error) => {
+        if (isActive) {
+          setFirstLaunchError(getBackendErrorMessage(error));
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [firstLaunchSettings]);
+
   useWorkspaceActionEvents();
 
   const { activePanel, dispatchAction, lastActionNotice, selectedMarkerId, setActivePanel, selectMarker } =
@@ -157,9 +184,14 @@ function App() {
     );
   }
 
+  if (!projectWorkspace) {
+    return <BootstrapGate title="正在读取项目工作区" message="MapX 正在准备默认项目和项目设置。" />;
+  }
+
   const selectedMarker = markerPreviews.find((marker) => marker.id === selectedMarkerId) ?? markerPreviews[0];
   const detailTitle = getDetailTitle(activePanel);
   const akStatus = firstLaunchSettings.baiduAk ? "已配置" : "未配置";
+  const mapLayerLabel = projectWorkspace.settings.mapLayer === "satellite" ? "卫星图" : "普通地图";
 
   return (
     <main className="flex min-h-screen bg-background text-foreground">
@@ -196,8 +228,23 @@ function App() {
           })}
         </nav>
 
+        <section className="border-t border-border p-4" aria-label="项目列表">
+          <p className="mb-2 text-xs font-medium text-muted-foreground">项目列表</p>
+          <div className="space-y-2">
+            {projectWorkspace.projects.map((project) => (
+              <div
+                key={project.id}
+                className="w-full rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-left text-sm font-medium text-primary"
+              >
+                {project.name}
+              </div>
+            ))}
+          </div>
+        </section>
+
         <div className="border-t border-border p-4 text-xs leading-5 text-muted-foreground">
           <p>默认城市：{firstLaunchSettings.defaultCity}</p>
+          <p>搜索城市：{projectWorkspace.settings.searchCity}</p>
           <p>百度 AK：{akStatus}</p>
           <p>快捷键：Cmd/Ctrl+N/F/S、Esc、Delete</p>
         </div>
@@ -208,7 +255,7 @@ function App() {
           <header className="flex h-16 items-center justify-between border-b border-border bg-white px-5">
             <div>
               <p className="text-xs text-muted-foreground">当前项目</p>
-              <h2 className="text-base font-semibold">默认项目</h2>
+              <h2 className="text-base font-semibold">{projectWorkspace.currentProject.name}</h2>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={() => dispatchAction("search.focus", "button")}>
@@ -250,9 +297,30 @@ function App() {
             <div className="space-y-4 p-5">
               <section className="rounded-lg border border-border p-4">
                 <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">快速操作</h3>
+                  <h3 className="text-sm font-semibold">项目设置</h3>
                   <Star className="size-4 text-amber-500" />
                 </div>
+                <dl className="mb-4 grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <dt className="text-xs text-muted-foreground">搜索城市</dt>
+                    <dd className="mt-1 font-medium">{projectWorkspace.settings.searchCity}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">图层</dt>
+                    <dd className="mt-1 font-medium">{mapLayerLabel}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">地图中心</dt>
+                    <dd className="mt-1 font-medium">
+                      {projectWorkspace.settings.mapCenterLng.toFixed(4)},{" "}
+                      {projectWorkspace.settings.mapCenterLat.toFixed(4)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">缩放</dt>
+                    <dd className="mt-1 font-medium">{projectWorkspace.settings.mapZoom}</dd>
+                  </div>
+                </dl>
                 <div className="grid gap-2">
                   <Button
                     variant="outline"

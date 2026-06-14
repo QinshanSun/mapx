@@ -1,5 +1,7 @@
+mod cities;
 mod db;
 mod errors;
+mod projects;
 mod settings;
 #[allow(dead_code)]
 mod validation;
@@ -92,6 +94,7 @@ pub fn run() {
             settings::open_data_directory,
             settings::update_baidu_ak,
             settings::update_default_city,
+            projects::get_project_workspace,
             health_check,
             get_bootstrap_status,
             structured_error_example
