@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useWorkspaceActionEvents } from "@/hooks/use-workspace-action-events";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { WorkspaceMarkerPreview, WorkspacePanel } from "@/types/workspace";
 
@@ -50,7 +51,10 @@ function getDetailTitle(panel: WorkspacePanel) {
 }
 
 function App() {
-  const { activePanel, selectedMarkerId, setActivePanel, selectMarker } = useWorkspaceStore();
+  useWorkspaceActionEvents();
+
+  const { activePanel, dispatchAction, lastActionNotice, selectedMarkerId, setActivePanel, selectMarker } =
+    useWorkspaceStore();
   const selectedMarker = markerPreviews.find((marker) => marker.id === selectedMarkerId) ?? markerPreviews[0];
   const detailTitle = getDetailTitle(activePanel);
 
@@ -92,6 +96,7 @@ function App() {
         <div className="border-t border-border p-4 text-xs leading-5 text-muted-foreground">
           <p>默认城市：上海</p>
           <p>百度 AK：待配置</p>
+          <p>快捷键：Cmd/Ctrl+N/F/S、Esc、Delete</p>
         </div>
       </aside>
 
@@ -103,13 +108,13 @@ function App() {
               <h2 className="text-base font-semibold">默认项目</h2>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={() => dispatchAction("search.focus", "button")}>
                 <Search />
                 搜索
               </Button>
-              <Button size="sm">
-                <MapPinned />
-                添加点位
+              <Button size="sm" onClick={() => dispatchAction("project.new", "button")}>
+                <FolderOpen />
+                新建项目
               </Button>
             </div>
           </header>
@@ -139,15 +144,38 @@ function App() {
                 <Star className="size-4 text-amber-500" />
               </div>
               <div className="grid gap-2">
-                <Button variant="outline" size="sm" className="justify-start" onClick={() => setActivePanel("settings")}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="justify-start"
+                  onClick={() => dispatchAction("view.settings", "button")}
+                >
                   <Settings />
                   打开设置
                 </Button>
-                <Button variant="outline" size="sm" className="justify-start" onClick={() => setActivePanel("about")}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="justify-start"
+                  onClick={() => dispatchAction("help.about", "button")}
+                >
                   <CircleHelp />
                   关于 MapX
                 </Button>
               </div>
+            </section>
+
+            <section className="rounded-lg border border-border bg-slate-50 p-4 text-sm leading-6">
+              <h3 className="mb-2 font-semibold">最近动作</h3>
+              {lastActionNotice ? (
+                <div>
+                  <p className="font-medium">{lastActionNotice.label}</p>
+                  <p className="text-muted-foreground">{lastActionNotice.message}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">来源：{lastActionNotice.source}</p>
+                </div>
+              ) : (
+                <p className="text-muted-foreground">菜单和快捷键触发后会在这里显示占位状态。</p>
+              )}
             </section>
 
             <section className="rounded-lg border border-border p-4">

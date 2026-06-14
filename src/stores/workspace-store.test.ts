@@ -12,6 +12,7 @@ describe("workspace store", () => {
     const store = createTestStore();
 
     expect(store.getState().activePanel).toBe("overview");
+    expect(store.getState().lastActionNotice).toBeNull();
     expect(store.getState().selectedMarkerId).toBeNull();
   });
 
@@ -32,5 +33,26 @@ describe("workspace store", () => {
 
     expect(store.getState().selectedMarkerId).toBe("mk-001");
     expect(store.getState().activePanel).toBe("settings");
+  });
+
+  it("routes shortcut actions through a single dispatcher", () => {
+    const store = createTestStore();
+
+    store.getState().dispatchAction("search.focus", "shortcut");
+
+    expect(store.getState().activePanel).toBe("markers");
+    expect(store.getState().lastActionNotice).toMatchObject({
+      id: "search.focus",
+      label: "搜索",
+      source: "shortcut",
+    });
+  });
+
+  it("keeps unimplemented delete actions visible instead of failing", () => {
+    const store = createTestStore();
+
+    store.getState().dispatchAction("selection.delete", "menu");
+
+    expect(store.getState().lastActionNotice?.message).toContain("当前没有选中项");
   });
 });
