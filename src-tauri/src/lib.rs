@@ -3,6 +3,7 @@ mod db;
 mod errors;
 mod projects;
 mod settings;
+mod taxonomy;
 #[allow(dead_code)]
 mod validation;
 
