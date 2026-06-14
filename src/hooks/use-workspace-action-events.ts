@@ -5,12 +5,15 @@ import { getActionFromMenuPayload, getWorkspaceShortcutAction } from "@/actions/
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { WORKSPACE_MENU_EVENT, type WorkspaceActionId, type WorkspaceActionSource } from "@/types/workspace-actions";
 
-export function useWorkspaceActionEvents(onAction?: (actionId: WorkspaceActionId, source: WorkspaceActionSource) => void) {
+export function useWorkspaceActionEvents(onAction?: (actionId: WorkspaceActionId, source: WorkspaceActionSource) => boolean | void) {
   const dispatchAction = useWorkspaceStore((state) => state.dispatchAction);
 
   const runAction = useCallback((actionId: WorkspaceActionId, source: WorkspaceActionSource) => {
+    if (onAction?.(actionId, source) === false) {
+      return;
+    }
+
     dispatchAction(actionId, source);
-    onAction?.(actionId, source);
   }, [dispatchAction, onAction]);
 
   useEffect(() => {

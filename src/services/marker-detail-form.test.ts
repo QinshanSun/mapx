@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { buildMarkerUpdate, markerToFormState, validateMarkerDetailForm } from "@/services/marker-detail-form";
+import {
+  buildMarkerUpdate,
+  isMarkerDetailFormDirty,
+  markerToFormState,
+  validateMarkerDetailForm,
+} from "@/services/marker-detail-form";
 import type { MarkerRecord } from "@/types/marker";
 
 describe("marker detail form", () => {
@@ -43,6 +48,24 @@ describe("marker detail form", () => {
       tagIds: ["tag-1"],
       note: "原备注",
     });
+  });
+
+  it("detects dirty form changes without treating tag order as a change", () => {
+    const currentMarker = marker();
+
+    expect(isMarkerDetailFormDirty(currentMarker, markerToFormState(currentMarker))).toBe(false);
+    expect(
+      isMarkerDetailFormDirty(currentMarker, {
+        ...markerToFormState(currentMarker),
+        tagIds: ["tag-2", "tag-1"],
+      }),
+    ).toBe(true);
+    expect(
+      isMarkerDetailFormDirty(
+        { ...currentMarker, tagIds: ["tag-1", "tag-2"] },
+        { ...markerToFormState(currentMarker), tagIds: ["tag-2", "tag-1"] },
+      ),
+    ).toBe(false);
   });
 });
 

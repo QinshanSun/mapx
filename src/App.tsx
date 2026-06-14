@@ -9,16 +9,19 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
 import { FirstLaunchFlow } from "@/components/first-launch-flow";
-import { MarkerDetailPanel } from "@/components/marker-detail-panel";
+import { MarkerDetailPanel, type MarkerDirtyHandlers } from "@/components/marker-detail-panel";
 import { MarkerListPanel } from "@/components/marker-list-panel";
 import { SettingsPanel } from "@/components/settings-panel";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceActionEvents } from "@/hooks/use-workspace-action-events";
 import { getBackendErrorMessage } from "@/services/backend-error";
 import { getBootstrapStatus } from "@/services/bootstrap-service";
+import { resolveDirtyGuardChoice, type DirtyGuardChoice } from "@/services/dirty-guard";
 import { createProject, getProjectWorkspace, selectProject } from "@/services/project-service";
 import { getFirstLaunchSettings } from "@/services/settings-service";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -27,6 +30,7 @@ import type { MarkerRecord } from "@/types/marker";
 import type { ProjectWorkspace } from "@/types/project";
 import type { FirstLaunchSettings } from "@/types/settings";
 import type { WorkspacePanel } from "@/types/workspace";
+import type { WorkspaceActionId, WorkspaceActionSource } from "@/types/workspace-actions";
 
 const navItems: Array<{ panel: WorkspacePanel; label: string; icon: LucideIcon }> = [
   { panel: "overview", label: "项目概览", icon: FolderOpen },
@@ -48,6 +52,17 @@ function getDetailTitle(panel: WorkspacePanel) {
   }
 }
 
+interface PendingDirtyAction {
+  message: string;
+  run: () => void | Promise<void>;
+}
+
+interface DirtyPromptState {
+  message: string;
+  error: string | null;
+  isSaving: boolean;
+}
+
 function App() {
   const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapStatus | null>(null);
   const [firstLaunchSettings, setFirstLaunchSettings] = useState<FirstLaunchSettings | null>(null);
@@ -57,8 +72,11 @@ function App() {
   const [projectActionError, setProjectActionError] = useState<string | null>(null);
   const [selectedMarkerRecord, setSelectedMarkerRecord] = useState<MarkerRecord | null>(null);
   const [markerListRefreshKey, setMarkerListRefreshKey] = useState(0);
+  const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | null>(null);
   const [isProjectSaving, setIsProjectSaving] = useState(false);
   const [firstLaunchError, setFirstLaunchError] = useState<string | null>(null);
+  const markerDirtyHandlersRef = useRef<MarkerDirtyHandlers | null>(null);
+  const pendingDirtyActionRef = useRef<PendingDirtyAction | null>(null);
   const handleSettingsError = useCallback((error: unknown) => {
     setFirstLaunchError(getBackendErrorMessage(error));
   }, []);
@@ -138,26 +156,158 @@ function App() {
   const { activePanel, dispatchAction, lastActionNotice, selectedMarkerId, setActivePanel, selectMarker } =
     useWorkspaceStore();
 
+  const runPendingDirtyAction = useCallback(() => {
+    const nextAction = pendingDirtyActionRef.current;
+    pendingDirtyActionRef.current = null;
+    setDirtyPrompt(null);
+    void nextAction?.run();
+  }, []);
+
+  const runWithMarkerDirtyGuard = useCallback(
+    (action: PendingDirtyAction) => {
+      if (markerDirtyHandlersRef.current?.isDirty()) {
+        pendingDirtyActionRef.current = action;
+        setDirtyPrompt({ message: action.message, error: null, isSaving: false });
+        return false;
+      }
+
+      void action.run();
+      return true;
+    },
+    [],
+  );
+
+  const handleMarkerDirtyHandlersChange = useCallback((handlers: MarkerDirtyHandlers | null) => {
+    markerDirtyHandlersRef.current = handlers;
+  }, []);
+
+  const handleDirtyPromptChoice = useCallback(
+    async (choice: DirtyGuardChoice) => {
+      const resolution = resolveDirtyGuardChoice(choice);
+
+      if (resolution === "stay") {
+        pendingDirtyActionRef.current = null;
+        setDirtyPrompt(null);
+        return;
+      }
+
+      if (resolution === "discardAndContinue") {
+        markerDirtyHandlersRef.current?.discard();
+        markerDirtyHandlersRef.current = null;
+        runPendingDirtyAction();
+        return;
+      }
+
+      setDirtyPrompt((currentPrompt) => currentPrompt && { ...currentPrompt, error: null, isSaving: true });
+      try {
+        const dirtyHandlers = markerDirtyHandlersRef.current;
+        await dirtyHandlers?.save();
+        markerDirtyHandlersRef.current = null;
+        runPendingDirtyAction();
+      } catch (error) {
+        setDirtyPrompt((currentPrompt) =>
+          currentPrompt && {
+            ...currentPrompt,
+            error: error instanceof Error ? error.message : "保存失败，请检查点位表单。",
+            isSaving: false,
+          },
+        );
+      }
+    },
+    [runPendingDirtyAction],
+  );
+
+  useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
+    let isActive = true;
+    let unlisten: (() => void) | null = null;
+    const appWindow = getCurrentWindow();
+
+    appWindow
+      .onCloseRequested((event) => {
+        if (!markerDirtyHandlersRef.current?.isDirty()) {
+          return;
+        }
+
+        event.preventDefault();
+        runWithMarkerDirtyGuard({
+          message: "关闭窗口前，当前点位还有未保存的修改。",
+          run: () => appWindow.close(),
+        });
+      })
+      .then((cleanup) => {
+        if (isActive) {
+          unlisten = cleanup;
+        } else {
+          cleanup();
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      isActive = false;
+      unlisten?.();
+    };
+  }, [runWithMarkerDirtyGuard]);
+
   const openProjectCreateForm = useCallback(() => {
     setIsProjectCreateOpen(true);
     setProjectActionError(null);
     setActivePanel("overview");
   }, [setActivePanel]);
 
-  const handleWorkspaceAction = useCallback((actionId: string) => {
-    if (actionId === "project.new") {
-      openProjectCreateForm();
-    }
-  }, [openProjectCreateForm]);
+  const runWorkspaceAction = useCallback(
+    (actionId: WorkspaceActionId, source: WorkspaceActionSource) => {
+      dispatchAction(actionId, source);
+
+      if (actionId === "project.new") {
+        openProjectCreateForm();
+      }
+    },
+    [dispatchAction, openProjectCreateForm],
+  );
+
+  const handleWorkspaceAction = useCallback(
+    (actionId: WorkspaceActionId, source: WorkspaceActionSource) => {
+      if (actionId === "changes.save" && markerDirtyHandlersRef.current?.isDirty()) {
+        void markerDirtyHandlersRef.current.save().then(() => dispatchAction(actionId, source));
+        return false;
+      }
+
+      if (
+        actionId === "project.new" ||
+        actionId === "search.focus" ||
+        actionId === "mode.cancel" ||
+        actionId === "selection.delete" ||
+        actionId === "view.overview" ||
+        actionId === "view.settings" ||
+        actionId === "help.about"
+      ) {
+        runWithMarkerDirtyGuard({
+          message: "继续操作前，当前点位还有未保存的修改。",
+          run: () => runWorkspaceAction(actionId, source),
+        });
+        return false;
+      }
+
+      return undefined;
+    },
+    [dispatchAction, runWithMarkerDirtyGuard, runWorkspaceAction],
+  );
 
   useWorkspaceActionEvents(handleWorkspaceAction);
 
   const openProjectCreate = useCallback(
     (source: "button" | "menu" | "shortcut") => {
-      openProjectCreateForm();
-      dispatchAction("project.new", source);
+      runWithMarkerDirtyGuard({
+        message: "新建项目前，当前点位还有未保存的修改。",
+        run: () => runWorkspaceAction("project.new", source),
+      });
     },
-    [dispatchAction, openProjectCreateForm],
+    [runWithMarkerDirtyGuard, runWorkspaceAction],
   );
 
   const handleProjectSelect = useCallback(
@@ -166,17 +316,22 @@ function App() {
         return;
       }
 
-      selectProject(projectId, projectWorkspace)
-        .then((workspace) => {
-          setProjectWorkspace(workspace);
-          setSelectedMarkerRecord(null);
-          selectMarker(null);
-          setActivePanel("overview");
-          setProjectActionError(null);
-        })
-        .catch((error) => setProjectActionError(getBackendErrorMessage(error)));
+      runWithMarkerDirtyGuard({
+        message: "切换项目前，当前点位还有未保存的修改。",
+        run: () => {
+          selectProject(projectId, projectWorkspace)
+            .then((workspace) => {
+              setProjectWorkspace(workspace);
+              setSelectedMarkerRecord(null);
+              selectMarker(null);
+              setActivePanel("overview");
+              setProjectActionError(null);
+            })
+            .catch((error) => setProjectActionError(getBackendErrorMessage(error)));
+        },
+      });
     },
-    [projectWorkspace, selectMarker, setActivePanel],
+    [projectWorkspace, runWithMarkerDirtyGuard, selectMarker, setActivePanel],
   );
 
   const handleProjectCreate = useCallback(
@@ -204,6 +359,20 @@ function App() {
         .finally(() => setIsProjectSaving(false));
     },
     [newProjectName, projectWorkspace, selectMarker, setActivePanel],
+  );
+
+  const handlePanelSelect = useCallback(
+    (panel: WorkspacePanel) => {
+      if (activePanel === panel) {
+        return;
+      }
+
+      runWithMarkerDirtyGuard({
+        message: "切换视图前，当前点位还有未保存的修改。",
+        run: () => setActivePanel(panel),
+      });
+    },
+    [activePanel, runWithMarkerDirtyGuard, setActivePanel],
   );
 
   if (!bootstrapStatus) {
@@ -347,7 +516,7 @@ function App() {
                 type="button"
                 variant={isActive ? "secondary" : "ghost"}
                 className="justify-start"
-                onClick={() => setActivePanel(item.panel)}
+                onClick={() => handlePanelSelect(item.panel)}
               >
                 <Icon />
                 {item.label}
@@ -372,7 +541,16 @@ function App() {
               <h2 className="text-base font-semibold">{projectWorkspace.currentProject.name}</h2>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => dispatchAction("search.focus", "button")}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  runWithMarkerDirtyGuard({
+                    message: "打开搜索前，当前点位还有未保存的修改。",
+                    run: () => runWorkspaceAction("search.focus", "button"),
+                  })
+                }
+              >
                 <Search />
                 搜索
               </Button>
@@ -390,8 +568,13 @@ function App() {
                 selectedMarkerId={selectedMarkerId}
                 refreshKey={markerListRefreshKey}
                 onSelectMarker={(marker) => {
-                  selectMarker(marker.id);
-                  setSelectedMarkerRecord(marker);
+                  runWithMarkerDirtyGuard({
+                    message: "切换点位前，当前点位还有未保存的修改。",
+                    run: () => {
+                      selectMarker(marker.id);
+                      setSelectedMarkerRecord(marker);
+                    },
+                  });
                 }}
                 onError={(error) => setProjectActionError(getBackendErrorMessage(error))}
               />
@@ -426,6 +609,7 @@ function App() {
                 setMarkerListRefreshKey((currentKey) => currentKey + 1);
               }}
               onError={(error) => setProjectActionError(getBackendErrorMessage(error))}
+              onDirtyHandlersChange={handleMarkerDirtyHandlersChange}
             />
           ) : activePanel === "settings" ? (
             <SettingsPanel
@@ -467,7 +651,7 @@ function App() {
                     variant="outline"
                     size="sm"
                     className="justify-start"
-                    onClick={() => dispatchAction("view.settings", "button")}
+                    onClick={() => runWorkspaceAction("view.settings", "button")}
                   >
                     <Settings />
                     打开设置
@@ -476,7 +660,7 @@ function App() {
                     variant="outline"
                     size="sm"
                     className="justify-start"
-                    onClick={() => dispatchAction("help.about", "button")}
+                    onClick={() => runWorkspaceAction("help.about", "button")}
                   >
                     <CircleHelp />
                     关于 MapX
@@ -500,6 +684,43 @@ function App() {
           )}
         </aside>
       </section>
+      {dirtyPrompt ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/35 p-6">
+          <section className="w-full max-w-md rounded-lg border border-border bg-white p-5 shadow-lg" role="dialog" aria-modal="true">
+            <h2 className="text-base font-semibold">点位修改尚未保存</h2>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">{dirtyPrompt.message}</p>
+            {dirtyPrompt.error ? <p className="mt-3 text-sm leading-6 text-red-600">{dirtyPrompt.error}</p> : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={dirtyPrompt.isSaving}
+                onClick={() => void handleDirtyPromptChoice("save")}
+              >
+                保存
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={dirtyPrompt.isSaving}
+                onClick={() => void handleDirtyPromptChoice("discard")}
+              >
+                放弃更改
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={dirtyPrompt.isSaving}
+                onClick={() => void handleDirtyPromptChoice("cancel")}
+              >
+                取消
+              </Button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }

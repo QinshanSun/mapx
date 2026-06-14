@@ -26,6 +26,18 @@ export function validateMarkerDetailForm(formState: MarkerDetailFormState) {
   return null;
 }
 
+export function isMarkerDetailFormDirty(marker: MarkerRecord, formState: MarkerDetailFormState) {
+  const initialState = markerToFormState(marker);
+
+  return (
+    initialState.name !== formState.name ||
+    initialState.address !== formState.address ||
+    initialState.categoryId !== formState.categoryId ||
+    initialState.note !== formState.note ||
+    !haveSameTags(initialState.tagIds, formState.tagIds)
+  );
+}
+
 export function buildMarkerUpdate(marker: MarkerRecord, formState: MarkerDetailFormState): MarkerUpdate {
   return {
     projectId: marker.projectId,
@@ -39,4 +51,15 @@ export function buildMarkerUpdate(marker: MarkerRecord, formState: MarkerDetailF
     note: formState.note.trim() || null,
     source: marker.source,
   };
+}
+
+function haveSameTags(left: string[], right: string[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+
+  return sortedLeft.every((tagId, index) => tagId === sortedRight[index]);
 }

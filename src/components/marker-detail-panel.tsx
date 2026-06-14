@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { listProjectCategories } from "@/services/category-service";
 import {
   buildMarkerUpdate,
+  isMarkerDetailFormDirty,
   markerToFormState,
   validateMarkerDetailForm,
   type MarkerDetailFormState,
@@ -15,14 +16,21 @@ import type { CategoryRecord } from "@/types/category";
 import type { MarkerRecord } from "@/types/marker";
 import type { TagRecord } from "@/types/tag";
 
+export interface MarkerDirtyHandlers {
+  isDirty: () => boolean;
+  save: () => Promise<MarkerRecord>;
+  discard: () => void;
+}
+
 interface MarkerDetailPanelProps {
   projectId: string;
   marker: MarkerRecord | null;
   onSaved: (marker: MarkerRecord) => void;
   onError: (error: unknown) => void;
+  onDirtyHandlersChange: (handlers: MarkerDirtyHandlers | null) => void;
 }
 
-export function MarkerDetailPanel({ projectId, marker, onSaved, onError }: MarkerDetailPanelProps) {
+export function MarkerDetailPanel({ projectId, marker, onSaved, onError, onDirtyHandlersChange }: MarkerDetailPanelProps) {
   const [categories, setCategories] = useState<CategoryRecord[]>([]);
   const [tags, setTags] = useState<TagRecord[]>([]);
   const [isEditing, setIsEditing] = useState(false);
@@ -34,6 +42,7 @@ export function MarkerDetailPanel({ projectId, marker, onSaved, onError }: Marke
     () => tags.filter((tagItem) => marker?.tagIds.includes(tagItem.id)),
     [marker?.tagIds, tags],
   );
+  const isDirty = marker ? isEditing && isMarkerDetailFormDirty(marker, formState) : false;
 
   useEffect(() => {
     let isActive = true;
@@ -52,6 +61,56 @@ export function MarkerDetailPanel({ projectId, marker, onSaved, onError }: Marke
     };
   }, [onError, projectId]);
 
+  useEffect(() => {
+    if (!marker) {
+      onDirtyHandlersChange(null);
+      return;
+    }
+
+    onDirtyHandlersChange({
+      isDirty: () => isDirty,
+      save: saveCurrentMarker,
+      discard: discardChanges,
+    });
+  });
+
+  useEffect(() => () => onDirtyHandlersChange(null), [onDirtyHandlersChange]);
+
+  async function saveCurrentMarker() {
+    if (!marker) {
+      throw new Error("没有可保存的点位。");
+    }
+
+    const validationError = validateMarkerDetailForm(formState);
+
+    if (validationError) {
+      setLocalError(validationError);
+      throw new Error(validationError);
+    }
+
+    setIsSaving(true);
+    try {
+      const nextMarker = await updateMarker(buildMarkerUpdate(marker, formState));
+      onSaved(nextMarker);
+      setFormState(markerToFormState(nextMarker));
+      setIsEditing(false);
+      setLocalError(null);
+
+      return nextMarker;
+    } catch (error) {
+      onError(error);
+      throw error;
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function discardChanges() {
+    setFormState(markerToFormState(marker));
+    setIsEditing(false);
+    setLocalError(null);
+  }
+
   if (!marker) {
     return (
       <div className="space-y-4 p-5">
@@ -62,8 +121,6 @@ export function MarkerDetailPanel({ projectId, marker, onSaved, onError }: Marke
       </div>
     );
   }
-
-  const currentMarker = marker;
 
   function updateForm(nextState: Partial<MarkerDetailFormState>) {
     setFormState((currentState) => ({ ...currentState, ...nextState }));
@@ -80,25 +137,7 @@ export function MarkerDetailPanel({ projectId, marker, onSaved, onError }: Marke
 
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const validationError = validateMarkerDetailForm(formState);
-
-    if (validationError) {
-      setLocalError(validationError);
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      const nextMarker = await updateMarker(buildMarkerUpdate(currentMarker, formState));
-      onSaved(nextMarker);
-      setFormState(markerToFormState(nextMarker));
-      setIsEditing(false);
-      setLocalError(null);
-    } catch (error) {
-      onError(error);
-    } finally {
-      setIsSaving(false);
-    }
+    await saveCurrentMarker().catch(() => undefined);
   }
 
   if (!isEditing) {
@@ -249,11 +288,7 @@ export function MarkerDetailPanel({ projectId, marker, onSaved, onError }: Marke
             size="sm"
             variant="outline"
             disabled={isSaving}
-            onClick={() => {
-              setFormState(markerToFormState(marker));
-              setIsEditing(false);
-              setLocalError(null);
-            }}
+            onClick={discardChanges}
           >
             <X />
             取消
