@@ -48,7 +48,7 @@ function buildPreviewMarker(draft: MarkerDraft, markerId = "preview-marker"): Ma
     coordinateSystem: "BD09",
     address: draft.address?.trim() || null,
     categoryId: draft.categoryId?.trim() || null,
-    tagIds: [],
+    tagIds: draft.tagIds ?? [],
     note: draft.note?.trim() || null,
     source: draft.source ?? "manual",
     createdAt: previewNow,

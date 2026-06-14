@@ -1,0 +1,42 @@
+import type { MarkerRecord, MarkerUpdate } from "@/types/marker";
+
+export interface MarkerDetailFormState {
+  name: string;
+  address: string;
+  categoryId: string;
+  tagIds: string[];
+  note: string;
+}
+
+export function markerToFormState(marker: MarkerRecord | null): MarkerDetailFormState {
+  return {
+    name: marker?.name ?? "",
+    address: marker?.address ?? "",
+    categoryId: marker?.categoryId ?? "",
+    tagIds: marker?.tagIds ?? [],
+    note: marker?.note ?? "",
+  };
+}
+
+export function validateMarkerDetailForm(formState: MarkerDetailFormState) {
+  if (!formState.name.trim()) {
+    return "点位名称不能为空。";
+  }
+
+  return null;
+}
+
+export function buildMarkerUpdate(marker: MarkerRecord, formState: MarkerDetailFormState): MarkerUpdate {
+  return {
+    projectId: marker.projectId,
+    markerId: marker.id,
+    name: formState.name.trim(),
+    lng: marker.lng,
+    lat: marker.lat,
+    address: formState.address.trim() || null,
+    categoryId: formState.categoryId || null,
+    tagIds: formState.tagIds,
+    note: formState.note.trim() || null,
+    source: marker.source,
+  };
+}

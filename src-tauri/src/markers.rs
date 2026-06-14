@@ -45,6 +45,7 @@ pub struct CreateMarkerRequest {
     pub lat: f64,
     pub address: Option<String>,
     pub category_id: Option<String>,
+    pub tag_ids: Option<Vec<String>>,
     pub note: Option<String>,
     pub source: Option<String>,
 }
@@ -59,6 +60,7 @@ pub struct UpdateMarkerRequest {
     pub lat: f64,
     pub address: Option<String>,
     pub category_id: Option<String>,
+    pub tag_ids: Option<Vec<String>>,
     pub note: Option<String>,
     pub source: Option<String>,
 }
@@ -147,6 +149,7 @@ pub async fn insert_marker(
     validate_bd09_coordinate(request.lng, request.lat)?;
     ensure_active_project(pool, &project_id).await?;
     let category_id = validate_optional_category(pool, &project_id, request.category_id).await?;
+    let tag_ids = validate_tag_ids(pool, &project_id, request.tag_ids.unwrap_or_default()).await?;
     let source = validate_marker_source(request.source.as_deref().unwrap_or("manual"))?;
     let marker_id = new_sqlite_uuid(pool).await?;
 
@@ -171,6 +174,8 @@ pub async fn insert_marker(
     .await
     .map_err(AppError::from)?;
 
+    replace_marker_tags(pool, &marker_id, &tag_ids).await?;
+
     load_marker_by_id(pool, &project_id, &marker_id).await
 }
 
@@ -185,6 +190,7 @@ pub async fn save_marker(
     ensure_active_project(pool, &project_id).await?;
     ensure_record_belongs_to_project(pool, "markers", &marker_id, &project_id).await?;
     let category_id = validate_optional_category(pool, &project_id, request.category_id).await?;
+    let tag_ids = validate_tag_ids(pool, &project_id, request.tag_ids.unwrap_or_default()).await?;
     let source = validate_marker_source(request.source.as_deref().unwrap_or("manual"))?;
 
     sqlx::query(
@@ -215,6 +221,8 @@ pub async fn save_marker(
     .execute(pool)
     .await
     .map_err(AppError::from)?;
+
+    replace_marker_tags(pool, &marker_id, &tag_ids).await?;
 
     load_marker_by_id(pool, &project_id, &marker_id).await
 }
@@ -295,6 +303,64 @@ async fn validate_optional_category(
     ensure_record_belongs_to_project(pool, "categories", &category_id, project_id).await?;
 
     Ok(Some(category_id))
+}
+
+async fn validate_tag_ids(
+    pool: &SqlitePool,
+    project_id: &str,
+    tag_ids: Vec<String>,
+) -> Result<Vec<String>, AppError> {
+    let mut normalized_tag_ids = Vec::new();
+
+    for tag_id in tag_ids {
+        let Some(tag_id) = normalize_optional_text(Some(tag_id)) else {
+            continue;
+        };
+
+        if normalized_tag_ids.contains(&tag_id) {
+            continue;
+        }
+
+        ensure_record_belongs_to_project(pool, "tags", &tag_id, project_id).await?;
+        normalized_tag_ids.push(tag_id);
+    }
+
+    Ok(normalized_tag_ids)
+}
+
+async fn replace_marker_tags(
+    pool: &SqlitePool,
+    marker_id: &str,
+    tag_ids: &[String],
+) -> Result<(), AppError> {
+    sqlx::query(
+        "UPDATE marker_tags
+         SET deleted_at = datetime('now'),
+             updated_at = datetime('now')
+         WHERE marker_id = ?
+           AND deleted_at IS NULL",
+    )
+    .bind(marker_id)
+    .execute(pool)
+    .await
+    .map_err(AppError::from)?;
+
+    for tag_id in tag_ids {
+        sqlx::query(
+            "INSERT INTO marker_tags (marker_id, tag_id, created_at, updated_at, deleted_at)
+             VALUES (?, ?, datetime('now'), datetime('now'), NULL)
+             ON CONFLICT(marker_id, tag_id) DO UPDATE SET
+               updated_at = datetime('now'),
+               deleted_at = NULL",
+        )
+        .bind(marker_id)
+        .bind(tag_id)
+        .execute(pool)
+        .await
+        .map_err(AppError::from)?;
+    }
+
+    Ok(())
 }
 
 fn validate_marker_source(source: &str) -> Result<&str, AppError> {
@@ -421,6 +487,7 @@ mod tests {
                 lat: 31.25,
                 address: Some("  新地址  ".to_string()),
                 category_id: None,
+                tag_ids: None,
                 note: Some("  重点跟进  ".to_string()),
                 source: Some("search".to_string()),
             },
@@ -434,6 +501,40 @@ mod tests {
         assert_eq!(updated.address, Some("新地址".to_string()));
         assert_eq!(updated.note, Some("重点跟进".to_string()));
         assert_eq!(updated.source, "search");
+    }
+
+    #[tokio::test]
+    async fn updates_marker_tags() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        insert_project_row(&pool, "project-1").await;
+        insert_tag_row(&pool, "tag-1", "project-1").await;
+        insert_tag_row(&pool, "tag-2", "project-1").await;
+        let marker = insert_marker(&pool, new_create_request("有标签点位", None))
+            .await
+            .expect("marker should be created");
+
+        let updated = save_marker(
+            &pool,
+            UpdateMarkerRequest {
+                project_id: "project-1".to_string(),
+                marker_id: marker.id.clone(),
+                name: marker.name,
+                lng: marker.lng,
+                lat: marker.lat,
+                address: marker.address,
+                category_id: marker.category_id,
+                tag_ids: Some(vec!["tag-1".to_string(), "tag-2".to_string()]),
+                note: marker.note,
+                source: Some(marker.source),
+            },
+        )
+        .await
+        .expect("marker tags should update");
+
+        assert_eq!(
+            updated.tag_ids,
+            vec!["tag-1".to_string(), "tag-2".to_string()]
+        );
     }
 
     #[tokio::test]
@@ -507,6 +608,7 @@ mod tests {
             lat: 31.2304,
             address: Some(" 上海市黄浦区 ".to_string()),
             category_id: category_id.map(str::to_string),
+            tag_ids: None,
             note: None,
             source: None,
         }
@@ -534,5 +636,18 @@ mod tests {
         .execute(pool)
         .await
         .expect("insert category");
+    }
+
+    async fn insert_tag_row(pool: &SqlitePool, tag_id: &str, project_id: &str) {
+        sqlx::query(
+            "INSERT INTO tags (id, project_id, name, created_at, updated_at, deleted_at)
+             VALUES (?, ?, ?, datetime('now'), datetime('now'), NULL)",
+        )
+        .bind(tag_id)
+        .bind(project_id)
+        .bind(format!("标签-{tag_id}"))
+        .execute(pool)
+        .await
+        .expect("insert tag");
     }
 }

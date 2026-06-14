@@ -12,6 +12,7 @@ import {
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { FirstLaunchFlow } from "@/components/first-launch-flow";
+import { MarkerDetailPanel } from "@/components/marker-detail-panel";
 import { MarkerListPanel } from "@/components/marker-list-panel";
 import { SettingsPanel } from "@/components/settings-panel";
 import { Button } from "@/components/ui/button";
@@ -22,26 +23,10 @@ import { createProject, getProjectWorkspace, selectProject } from "@/services/pr
 import { getFirstLaunchSettings } from "@/services/settings-service";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { BootstrapStatus } from "@/types/bootstrap";
+import type { MarkerRecord } from "@/types/marker";
 import type { ProjectWorkspace } from "@/types/project";
 import type { FirstLaunchSettings } from "@/types/settings";
-import type { WorkspaceMarkerPreview, WorkspacePanel } from "@/types/workspace";
-
-const markerPreviews: WorkspaceMarkerPreview[] = [
-  {
-    id: "mk-001",
-    name: "上海静安项目点",
-    categoryName: "现场点位",
-    city: "上海",
-    address: "静安区南京西路附近",
-  },
-  {
-    id: "mk-002",
-    name: "杭州样板仓",
-    categoryName: "收藏点",
-    city: "杭州",
-    address: "余杭区未来科技城",
-  },
-];
+import type { WorkspacePanel } from "@/types/workspace";
 
 const navItems: Array<{ panel: WorkspacePanel; label: string; icon: LucideIcon }> = [
   { panel: "overview", label: "项目概览", icon: FolderOpen },
@@ -70,6 +55,8 @@ function App() {
   const [isProjectCreateOpen, setIsProjectCreateOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [projectActionError, setProjectActionError] = useState<string | null>(null);
+  const [selectedMarkerRecord, setSelectedMarkerRecord] = useState<MarkerRecord | null>(null);
+  const [markerListRefreshKey, setMarkerListRefreshKey] = useState(0);
   const [isProjectSaving, setIsProjectSaving] = useState(false);
   const [firstLaunchError, setFirstLaunchError] = useState<string | null>(null);
   const handleSettingsError = useCallback((error: unknown) => {
@@ -182,12 +169,14 @@ function App() {
       selectProject(projectId, projectWorkspace)
         .then((workspace) => {
           setProjectWorkspace(workspace);
+          setSelectedMarkerRecord(null);
+          selectMarker(null);
           setActivePanel("overview");
           setProjectActionError(null);
         })
         .catch((error) => setProjectActionError(getBackendErrorMessage(error)));
     },
-    [projectWorkspace, setActivePanel],
+    [projectWorkspace, selectMarker, setActivePanel],
   );
 
   const handleProjectCreate = useCallback(
@@ -204,6 +193,8 @@ function App() {
       createProject(name, projectWorkspace)
         .then((workspace) => {
           setProjectWorkspace(workspace);
+          setSelectedMarkerRecord(null);
+          selectMarker(null);
           setNewProjectName("");
           setIsProjectCreateOpen(false);
           setProjectActionError(null);
@@ -212,7 +203,7 @@ function App() {
         .catch((error) => setProjectActionError(getBackendErrorMessage(error)))
         .finally(() => setIsProjectSaving(false));
     },
-    [newProjectName, projectWorkspace, setActivePanel],
+    [newProjectName, projectWorkspace, selectMarker, setActivePanel],
   );
 
   if (!bootstrapStatus) {
@@ -257,7 +248,6 @@ function App() {
     return <BootstrapGate title="正在读取项目工作区" message="MapX 正在准备默认项目和项目设置。" />;
   }
 
-  const selectedMarker = markerPreviews.find((marker) => marker.id === selectedMarkerId) ?? markerPreviews[0];
   const detailTitle = getDetailTitle(activePanel);
   const akStatus = firstLaunchSettings.baiduAk ? "已配置" : "未配置";
   const mapLayerLabel = projectWorkspace.settings.mapLayer === "satellite" ? "卫星图" : "普通地图";
@@ -398,7 +388,11 @@ function App() {
               <MarkerListPanel
                 projectId={projectWorkspace.currentProject.id}
                 selectedMarkerId={selectedMarkerId}
-                onSelectMarker={selectMarker}
+                refreshKey={markerListRefreshKey}
+                onSelectMarker={(marker) => {
+                  selectMarker(marker.id);
+                  setSelectedMarkerRecord(marker);
+                }}
                 onError={(error) => setProjectActionError(getBackendErrorMessage(error))}
               />
             ) : null}
@@ -422,7 +416,18 @@ function App() {
             <h2 className="mt-1 text-base font-semibold">{detailTitle}</h2>
           </header>
 
-          {activePanel === "settings" ? (
+          {activePanel === "markers" ? (
+            <MarkerDetailPanel
+              key={selectedMarkerRecord?.id ?? "empty-marker-detail"}
+              projectId={projectWorkspace.currentProject.id}
+              marker={selectedMarkerRecord}
+              onSaved={(marker) => {
+                setSelectedMarkerRecord(marker);
+                setMarkerListRefreshKey((currentKey) => currentKey + 1);
+              }}
+              onError={(error) => setProjectActionError(getBackendErrorMessage(error))}
+            />
+          ) : activePanel === "settings" ? (
             <SettingsPanel
               settings={firstLaunchSettings}
               currentProjectId={projectWorkspace.currentProject.id}
@@ -490,30 +495,6 @@ function App() {
                 ) : (
                   <p className="text-muted-foreground">菜单和快捷键触发后会在这里显示占位状态。</p>
                 )}
-              </section>
-
-              <section className="rounded-lg border border-border p-4">
-                <h3 className="mb-3 text-sm font-semibold">点位预览</h3>
-                <div className="space-y-2">
-                  {markerPreviews.map((marker) => (
-                    <button
-                      key={marker.id}
-                      type="button"
-                      className="w-full rounded-md border border-border p-3 text-left text-sm transition hover:border-primary/40 hover:bg-accent"
-                      onClick={() => selectMarker(marker.id)}
-                    >
-                      <span className="font-medium">{marker.name}</span>
-                      <span className="mt-1 block text-xs text-muted-foreground">
-                        {marker.categoryName} · {marker.city}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              <section className="rounded-lg border border-border p-4 text-sm leading-6">
-                <h3 className="mb-2 font-semibold">{selectedMarker.name}</h3>
-                <p className="text-muted-foreground">{selectedMarker.address}</p>
               </section>
             </div>
           )}

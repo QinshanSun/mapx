@@ -23,6 +23,7 @@ export interface MarkerDraft {
   lat: number;
   address?: string | null;
   categoryId?: string | null;
+  tagIds?: string[];
   note?: string | null;
   source?: MarkerSource;
 }

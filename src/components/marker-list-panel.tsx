@@ -16,11 +16,12 @@ const overscan = 4;
 interface MarkerListPanelProps {
   projectId: string;
   selectedMarkerId: string | null;
-  onSelectMarker: (markerId: string) => void;
+  refreshKey: number;
+  onSelectMarker: (marker: MarkerRecord) => void;
   onError: (error: unknown) => void;
 }
 
-export function MarkerListPanel({ projectId, selectedMarkerId, onSelectMarker, onError }: MarkerListPanelProps) {
+export function MarkerListPanel({ projectId, selectedMarkerId, refreshKey, onSelectMarker, onError }: MarkerListPanelProps) {
   const [markers, setMarkers] = useState<MarkerRecord[]>([]);
   const [categories, setCategories] = useState<CategoryRecord[]>([]);
   const [tags, setTags] = useState<TagRecord[]>([]);
@@ -55,7 +56,7 @@ export function MarkerListPanel({ projectId, selectedMarkerId, onSelectMarker, o
     return () => {
       isActive = false;
     };
-  }, [onError, projectId]);
+  }, [onError, projectId, refreshKey]);
 
   function updateFilter(nextFilters: Partial<MarkerListFilters>) {
     setFilters((currentFilters) => ({ ...currentFilters, ...nextFilters }));
@@ -149,7 +150,7 @@ export function MarkerListPanel({ projectId, selectedMarkerId, onSelectMarker, o
                     : "border-border bg-white hover:border-primary/40 hover:bg-accent"
                 }`}
                 style={{ top: (startIndex + index) * rowHeight, height: rowHeight - 8 }}
-                onClick={() => onSelectMarker(marker.id)}
+                onClick={() => onSelectMarker(marker)}
               >
                 <span className="flex items-center gap-2 font-medium">
                   <MapPin className="size-4" style={{ color: category?.color ?? "#64748b" }} />
