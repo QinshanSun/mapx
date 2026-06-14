@@ -5,13 +5,19 @@ import { MarkerOverviewPanel } from "@/components/marker-overview-panel";
 import { Button } from "@/components/ui/button";
 import { listProjectCategories } from "@/services/category-service";
 import {
+  buildMarkerDraftFromPending,
+  isPendingMarkerDirty,
+  pendingMarkerToFormState,
+  type PendingMarkerCreation,
+} from "@/services/marker-creation";
+import {
   buildMarkerUpdate,
   isMarkerDetailFormDirty,
   markerToFormState,
   validateMarkerDetailForm,
   type MarkerDetailFormState,
 } from "@/services/marker-detail-form";
-import { updateMarker } from "@/services/marker-service";
+import { createMarker, updateMarker } from "@/services/marker-service";
 import { listProjectTags } from "@/services/tag-service";
 import type { CategoryRecord } from "@/types/category";
 import type { MarkerRecord } from "@/types/marker";
@@ -26,7 +32,9 @@ export interface MarkerDirtyHandlers {
 interface MarkerDetailPanelProps {
   projectId: string;
   marker: MarkerRecord | null;
+  pendingMarker: PendingMarkerCreation | null;
   onSaved: (marker: MarkerRecord) => void;
+  onPendingCanceled: () => void;
   onCreateMarkerRequest: () => void;
   onCreateCategoryRequest: () => void;
   onCreateTagRequest: () => void;
@@ -37,7 +45,9 @@ interface MarkerDetailPanelProps {
 export function MarkerDetailPanel({
   projectId,
   marker,
+  pendingMarker,
   onSaved,
+  onPendingCanceled,
   onCreateMarkerRequest,
   onCreateCategoryRequest,
   onCreateTagRequest,
@@ -49,13 +59,15 @@ export function MarkerDetailPanel({
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [formState, setFormState] = useState<MarkerDetailFormState>(() => markerToFormState(marker));
+  const [formState, setFormState] = useState<MarkerDetailFormState>(() =>
+    pendingMarker ? pendingMarkerToFormState(pendingMarker) : markerToFormState(marker),
+  );
   const category = categories.find((item) => item.id === marker?.categoryId) ?? null;
   const markerTags = useMemo(
     () => tags.filter((tagItem) => marker?.tagIds.includes(tagItem.id)),
     [marker?.tagIds, tags],
   );
-  const isDirty = marker ? isEditing && isMarkerDetailFormDirty(marker, formState) : false;
+  const isDirty = pendingMarker ? isPendingMarkerDirty(pendingMarker) : marker ? isEditing && isMarkerDetailFormDirty(marker, formState) : false;
 
   useEffect(() => {
     let isActive = true;
@@ -75,6 +87,15 @@ export function MarkerDetailPanel({
   }, [onError, projectId]);
 
   useEffect(() => {
+    if (pendingMarker) {
+      onDirtyHandlersChange({
+        isDirty: () => isDirty,
+        save: savePendingMarker,
+        discard: cancelPendingMarker,
+      });
+      return;
+    }
+
     if (!marker) {
       onDirtyHandlersChange(null);
       return;
@@ -118,10 +139,92 @@ export function MarkerDetailPanel({
     }
   }
 
+  async function savePendingMarker() {
+    if (!pendingMarker) {
+      throw new Error("没有可保存的新点位。");
+    }
+
+    const validationError = validateMarkerDetailForm(formState);
+
+    if (validationError) {
+      setLocalError(validationError);
+      throw new Error(validationError);
+    }
+
+    setIsSaving(true);
+    try {
+      const nextMarker = await createMarker(buildMarkerDraftFromPending(pendingMarker, formState));
+      onSaved(nextMarker);
+      setLocalError(null);
+
+      return nextMarker;
+    } catch (error) {
+      onError(error);
+      throw error;
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   function discardChanges() {
     setFormState(markerToFormState(marker));
     setIsEditing(false);
     setLocalError(null);
+  }
+
+  function cancelPendingMarker() {
+    setLocalError(null);
+    onPendingCanceled();
+  }
+
+  if (pendingMarker) {
+    return (
+      <form className="space-y-4 p-5" onSubmit={handleSave}>
+        <section className="rounded-lg border border-primary/30 bg-primary/5 p-4">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-muted-foreground">待保存点位</p>
+              <h3 className="mt-1 text-sm font-semibold">新建点位</h3>
+            </div>
+            <MapPin className="size-4 text-primary" />
+          </div>
+
+          <MarkerFormFields
+            formState={formState}
+            categories={categories}
+            tags={tags}
+            onUpdate={updateForm}
+            onToggleTag={toggleTag}
+          />
+
+          <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <dt className="text-xs text-muted-foreground">坐标</dt>
+              <dd className="mt-1 font-medium">
+                {pendingMarker.lng.toFixed(6)}, {pendingMarker.lat.toFixed(6)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">来源</dt>
+              <dd className="mt-1 font-medium">{pendingMarker.source === "center" ? "地图中心" : "地图点击"}</dd>
+            </div>
+          </dl>
+
+          {localError ? <p className="mt-3 text-xs leading-5 text-red-600">{localError}</p> : null}
+
+          <div className="mt-4 flex justify-end gap-2">
+            <Button type="button" size="sm" variant="outline" disabled={isSaving} onClick={cancelPendingMarker}>
+              <X />
+              取消
+            </Button>
+            <Button type="submit" size="sm" disabled={isSaving}>
+              <Check />
+              保存
+            </Button>
+          </div>
+        </section>
+      </form>
+    );
   }
 
   if (!marker) {
@@ -151,7 +254,7 @@ export function MarkerDetailPanel({
 
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await saveCurrentMarker().catch(() => undefined);
+    await (pendingMarker ? savePendingMarker() : saveCurrentMarker()).catch(() => undefined);
   }
 
   if (!isEditing) {
@@ -226,72 +329,13 @@ export function MarkerDetailPanel({
         </div>
 
         <div className="space-y-3">
-          <label className="block text-sm font-medium" htmlFor="marker-detail-name">
-            名称
-            <input
-              id="marker-detail-name"
-              className="mt-2 h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
-              value={formState.name}
-              onChange={(event) => updateForm({ name: event.target.value })}
-            />
-          </label>
-
-          <label className="block text-sm font-medium" htmlFor="marker-detail-address">
-            地址
-            <input
-              id="marker-detail-address"
-              className="mt-2 h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
-              value={formState.address}
-              onChange={(event) => updateForm({ address: event.target.value })}
-            />
-          </label>
-
-          <label className="block text-sm font-medium" htmlFor="marker-detail-category">
-            分类
-            <select
-              id="marker-detail-category"
-              className="mt-2 h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
-              value={formState.categoryId}
-              onChange={(event) => updateForm({ categoryId: event.target.value })}
-            >
-              <option value="">未分类</option>
-              {categories.map((categoryItem) => (
-                <option key={categoryItem.id} value={categoryItem.id}>
-                  {categoryItem.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div>
-            <p className="text-sm font-medium">标签</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {tags.length > 0 ? (
-                tags.map((tagItem) => (
-                  <label key={tagItem.id} className="flex items-center gap-2 rounded-md border border-border px-2 py-1 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={formState.tagIds.includes(tagItem.id)}
-                      onChange={() => toggleTag(tagItem.id)}
-                    />
-                    {tagItem.name}
-                  </label>
-                ))
-              ) : (
-                <p className="text-xs text-muted-foreground">暂无标签，可在设置中创建。</p>
-              )}
-            </div>
-          </div>
-
-          <label className="block text-sm font-medium" htmlFor="marker-detail-note">
-            备注
-            <textarea
-              id="marker-detail-note"
-              className="mt-2 min-h-24 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary"
-              value={formState.note}
-              onChange={(event) => updateForm({ note: event.target.value })}
-            />
-          </label>
+          <MarkerFormFields
+            formState={formState}
+            categories={categories}
+            tags={tags}
+            onUpdate={updateForm}
+            onToggleTag={toggleTag}
+          />
         </div>
 
         {localError ? <p className="mt-3 text-xs leading-5 text-red-600">{localError}</p> : null}
@@ -318,5 +362,82 @@ export function MarkerDetailPanel({
         </div>
       </section>
     </form>
+  );
+}
+
+interface MarkerFormFieldsProps {
+  formState: MarkerDetailFormState;
+  categories: CategoryRecord[];
+  tags: TagRecord[];
+  onUpdate: (nextState: Partial<MarkerDetailFormState>) => void;
+  onToggleTag: (tagId: string) => void;
+}
+
+function MarkerFormFields({ formState, categories, tags, onUpdate, onToggleTag }: MarkerFormFieldsProps) {
+  return (
+    <div className="space-y-3">
+      <label className="block text-sm font-medium" htmlFor="marker-detail-name">
+        名称
+        <input
+          id="marker-detail-name"
+          className="mt-2 h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+          value={formState.name}
+          onChange={(event) => onUpdate({ name: event.target.value })}
+        />
+      </label>
+
+      <label className="block text-sm font-medium" htmlFor="marker-detail-address">
+        地址
+        <input
+          id="marker-detail-address"
+          className="mt-2 h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+          value={formState.address}
+          onChange={(event) => onUpdate({ address: event.target.value })}
+        />
+      </label>
+
+      <label className="block text-sm font-medium" htmlFor="marker-detail-category">
+        分类
+        <select
+          id="marker-detail-category"
+          className="mt-2 h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+          value={formState.categoryId}
+          onChange={(event) => onUpdate({ categoryId: event.target.value })}
+        >
+          <option value="">未分类</option>
+          {categories.map((categoryItem) => (
+            <option key={categoryItem.id} value={categoryItem.id}>
+              {categoryItem.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <div>
+        <p className="text-sm font-medium">标签</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {tags.length > 0 ? (
+            tags.map((tagItem) => (
+              <label key={tagItem.id} className="flex items-center gap-2 rounded-md border border-border px-2 py-1 text-xs">
+                <input type="checkbox" checked={formState.tagIds.includes(tagItem.id)} onChange={() => onToggleTag(tagItem.id)} />
+                {tagItem.name}
+              </label>
+            ))
+          ) : (
+            <p className="text-xs text-muted-foreground">暂无标签，可在设置中创建。</p>
+          )}
+        </div>
+      </div>
+
+      <label className="block text-sm font-medium" htmlFor="marker-detail-note">
+        备注
+        <textarea
+          id="marker-detail-note"
+          className="mt-2 min-h-24 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+          value={formState.note}
+          onChange={(event) => onUpdate({ note: event.target.value })}
+        />
+      </label>
+    </div>
   );
 }

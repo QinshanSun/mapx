@@ -142,6 +142,30 @@ describe("baidu map provider", () => {
     expect(onSelectMarker).toHaveBeenCalledWith("marker-1");
   });
 
+  it("emits plain coordinates only after a map click handler is registered", async () => {
+    const fake = createFakeApi();
+    const onCreateMarker = vi.fn();
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+    fake.instances[0].triggerClick({ latlng: { lng: 121.5, lat: 31.25 } });
+
+    expect(onCreateMarker).not.toHaveBeenCalled();
+
+    provider.setMapClickHandler(onCreateMarker);
+    fake.instances[0].triggerClick({ latlng: { lng: 121.5, lat: 31.25 } });
+
+    expect(onCreateMarker).toHaveBeenCalledWith({ lng: 121.5, lat: 31.25 });
+
+    provider.setMapClickHandler(null);
+    fake.instances[0].triggerClick({ latlng: { lng: 121.6, lat: 31.26 } });
+
+    expect(onCreateMarker).toHaveBeenCalledTimes(1);
+  });
+
   it("renders the selected marker with selected styling", async () => {
     const fake = createFakeApi();
     const provider = new BaiduMapProvider("test-ak", {
@@ -243,7 +267,13 @@ function createFakeApi() {
 
 class FakeMap {
   private center = { lng: 0, lat: 0 };
+  private clickHandler: ((event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void) | null = null;
   private zoom = 0;
+  readonly addEventListener = vi.fn((eventName: string, handler: (event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void) => {
+    if (eventName === "click") {
+      this.clickHandler = handler;
+    }
+  });
   readonly addOverlay = vi.fn();
   readonly destroy = vi.fn();
   readonly removeOverlay = vi.fn();
@@ -261,6 +291,10 @@ class FakeMap {
 
   getZoom() {
     return this.zoom;
+  }
+
+  triggerClick(event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) {
+    this.clickHandler?.(event);
   }
 }
 

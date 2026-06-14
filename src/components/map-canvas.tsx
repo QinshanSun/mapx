@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FolderOpen, RotateCcw, Settings } from "lucide-react";
+import { Crosshair, FolderOpen, MapPin, Plus, RotateCcw, Settings, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { createBaiduMapProvider } from "@/services/baidu-map-provider";
 import { resolveMapCanvasOverlay, type MapCanvasActionId } from "@/services/map-canvas-state";
-import type { MapMarkerItem, MapProvider } from "@/services/map-provider";
+import type { MapCoordinate, MapMarkerItem, MapProvider } from "@/services/map-provider";
 import type { ProjectMapSettings } from "@/types/project";
 
 interface MapLoadResult {
@@ -18,7 +18,13 @@ interface MapCanvasProps {
   settings: ProjectMapSettings;
   markers: MapMarkerItem[];
   selectedMarkerId: string | null;
+  isMarkerCreationMode: boolean;
+  pendingMarkerCoordinate: MapCoordinate | null;
   onSelectMarker: (markerId: string) => void;
+  onStartMarkerCreationMode: () => void;
+  onCancelMarkerCreationMode: () => void;
+  onCreateMarkerAtCoordinate: (coordinate: MapCoordinate) => void;
+  onCreateMarkerAtCenter: (coordinate: MapCoordinate) => void;
   onOpenSettings: () => void;
   onOpenLogDirectory: () => void | Promise<void>;
 }
@@ -28,7 +34,13 @@ export function MapCanvas({
   settings,
   markers,
   selectedMarkerId,
+  isMarkerCreationMode,
+  pendingMarkerCoordinate,
   onSelectMarker,
+  onStartMarkerCreationMode,
+  onCancelMarkerCreationMode,
+  onCreateMarkerAtCoordinate,
+  onCreateMarkerAtCenter,
   onOpenSettings,
   onOpenLogDirectory,
 }: MapCanvasProps) {
@@ -65,6 +77,10 @@ export function MapCanvas({
     }
 
     void onOpenLogDirectory();
+  }
+
+  function handleCreateAtCenter() {
+    onCreateMarkerAtCenter(providerRef.current?.getView()?.center ?? view.center);
   }
 
   useEffect(() => {
@@ -127,9 +143,40 @@ export function MapCanvas({
     };
   }, [onSelectMarker]);
 
+  useEffect(() => {
+    providerRef.current?.setMapClickHandler(isMarkerCreationMode ? onCreateMarkerAtCoordinate : null);
+
+    return () => {
+      providerRef.current?.setMapClickHandler(null);
+    };
+  }, [isMarkerCreationMode, onCreateMarkerAtCoordinate]);
+
   return (
     <div className="relative h-full w-full overflow-hidden bg-slate-100">
       <div ref={containerRef} className="absolute inset-0" aria-label="百度地图画布" />
+      <div className="absolute left-4 top-4 z-20 flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant={isMarkerCreationMode ? "default" : "outline"}
+          className="bg-white shadow-sm data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
+          data-active={isMarkerCreationMode}
+          onClick={isMarkerCreationMode ? onCancelMarkerCreationMode : onStartMarkerCreationMode}
+        >
+          {isMarkerCreationMode ? <X /> : <Plus />}
+          {isMarkerCreationMode ? "取消添加" : "添加点位"}
+        </Button>
+        <Button type="button" size="sm" variant="outline" className="bg-white shadow-sm" onClick={handleCreateAtCenter}>
+          <Crosshair />
+          中心点
+        </Button>
+        {pendingMarkerCoordinate ? (
+          <div className="flex h-9 items-center gap-2 rounded-md border border-primary/30 bg-white px-3 text-xs font-medium text-primary shadow-sm">
+            <MapPin className="size-3.5" />
+            {pendingMarkerCoordinate.lng.toFixed(5)}, {pendingMarkerCoordinate.lat.toFixed(5)}
+          </div>
+        ) : null}
+      </div>
       {status === "ready" ? null : (
         <div
           className="absolute inset-0 grid place-items-center bg-white/78 p-6 text-center backdrop-blur-sm"

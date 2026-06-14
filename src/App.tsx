@@ -29,7 +29,13 @@ import { useWorkspaceActionEvents } from "@/hooks/use-workspace-action-events";
 import { getBackendErrorMessage } from "@/services/backend-error";
 import { getBootstrapStatus } from "@/services/bootstrap-service";
 import { resolveDirtyGuardChoice, type DirtyGuardChoice } from "@/services/dirty-guard";
+import {
+  createPendingMarkerFromCenter,
+  createPendingMarkerFromMapClick,
+  type PendingMarkerCreation,
+} from "@/services/marker-creation";
 import { buildMapMarkerItems, findMarkerById } from "@/services/map-marker-render";
+import type { MapCoordinate, MapMarkerItem } from "@/services/map-provider";
 import {
   createProject,
   getProjectWorkspace,
@@ -89,6 +95,8 @@ function App() {
   const [isProjectRenameOpen, setIsProjectRenameOpen] = useState(false);
   const [projectRenameName, setProjectRenameName] = useState("");
   const [pendingDeleteProjectId, setPendingDeleteProjectId] = useState<string | null>(null);
+  const [pendingMarker, setPendingMarker] = useState<PendingMarkerCreation | null>(null);
+  const [isMarkerCreationMode, setIsMarkerCreationMode] = useState(false);
   const [projectActionError, setProjectActionError] = useState<string | null>(null);
   const [selectedMarkerRecord, setSelectedMarkerRecord] = useState<MarkerRecord | null>(null);
   const [filteredMarkerRecords, setFilteredMarkerRecords] = useState<MarkerRecord[]>([]);
@@ -103,10 +111,25 @@ function App() {
   const pendingDeleteProject = projectWorkspace?.projects.find((project) => project.id === pendingDeleteProjectId) ?? null;
   const markerDirtyHandlersRef = useRef<MarkerDirtyHandlers | null>(null);
   const pendingDirtyActionRef = useRef<PendingDirtyAction | null>(null);
-  const mapMarkers = useMemo(
-    () => buildMapMarkerItems(filteredMarkerRecords, markerCategories),
-    [filteredMarkerRecords, markerCategories],
-  );
+  const mapMarkers = useMemo(() => {
+    const markerItems: MapMarkerItem[] = buildMapMarkerItems(filteredMarkerRecords, markerCategories);
+
+    if (pendingMarker) {
+      return [
+        ...markerItems,
+        {
+          id: pendingMarker.id,
+          name: "待保存点位",
+          lng: pendingMarker.lng,
+          lat: pendingMarker.lat,
+          color: "#dc2626",
+          icon: "MapPin",
+        },
+      ];
+    }
+
+    return markerItems;
+  }, [filteredMarkerRecords, markerCategories, pendingMarker]);
   const handleSettingsError = useCallback((error: unknown) => {
     setFirstLaunchError(getBackendErrorMessage(error));
   }, []);
@@ -235,10 +258,75 @@ function App() {
     [filteredMarkerRecords, runWithMarkerDirtyGuard, selectMarker],
   );
 
+  const clearPendingMarker = useCallback(() => {
+    setPendingMarker(null);
+    setIsMarkerCreationMode(false);
+  }, []);
+
+  const startMarkerCreationMode = useCallback(() => {
+    runWithMarkerDirtyGuard({
+      message: "进入添加点位前，当前点位还有未保存的修改。",
+      run: () => {
+        setIsMarkerCreationMode(true);
+        setActivePanel("markers");
+      },
+    });
+  }, [runWithMarkerDirtyGuard, setActivePanel]);
+
+  const cancelMarkerCreationMode = useCallback(() => {
+    setPendingMarker(null);
+    setIsMarkerCreationMode(false);
+  }, []);
+
+  const beginPendingMarkerCreation = useCallback(
+    (nextPendingMarker: PendingMarkerCreation | null) => {
+      if (!nextPendingMarker) {
+        return;
+      }
+
+      runWithMarkerDirtyGuard({
+        message: "新建点位前，当前点位还有未保存的修改。",
+        run: () => {
+          setPendingMarker(nextPendingMarker);
+          setSelectedMarkerRecord(null);
+          selectMarker(null);
+          setActivePanel("markers");
+          setProjectActionError(null);
+        },
+      });
+    },
+    [runWithMarkerDirtyGuard, selectMarker, setActivePanel],
+  );
+
+  const handleCreateMarkerAtCoordinate = useCallback(
+    (coordinate: MapCoordinate) => {
+      if (!projectWorkspace) {
+        return;
+      }
+
+      beginPendingMarkerCreation(
+        createPendingMarkerFromMapClick(projectWorkspace.currentProject.id, coordinate, isMarkerCreationMode),
+      );
+    },
+    [beginPendingMarkerCreation, isMarkerCreationMode, projectWorkspace],
+  );
+
+  const handleCreateMarkerAtCenter = useCallback(
+    (coordinate: MapCoordinate) => {
+      if (!projectWorkspace) {
+        return;
+      }
+
+      beginPendingMarkerCreation(createPendingMarkerFromCenter(projectWorkspace.currentProject.id, coordinate));
+    },
+    [beginPendingMarkerCreation, projectWorkspace],
+  );
+
   useEffect(() => {
     setFilteredMarkerRecords([]);
     setMarkerCategories([]);
-  }, [projectWorkspace?.currentProject.id]);
+    clearPendingMarker();
+  }, [clearPendingMarker, projectWorkspace?.currentProject.id]);
 
   const handleDirtyPromptChoice = useCallback(
     async (choice: DirtyGuardChoice) => {
@@ -835,8 +923,14 @@ function App() {
                 baiduAk={firstLaunchSettings.baiduAk}
                 settings={projectWorkspace.settings}
                 markers={mapMarkers}
-                selectedMarkerId={selectedMarkerId}
+                selectedMarkerId={pendingMarker?.id ?? selectedMarkerId}
+                isMarkerCreationMode={isMarkerCreationMode}
+                pendingMarkerCoordinate={pendingMarker ? { lng: pendingMarker.lng, lat: pendingMarker.lat } : null}
                 onSelectMarker={handleMapMarkerSelect}
+                onStartMarkerCreationMode={startMarkerCreationMode}
+                onCancelMarkerCreationMode={cancelMarkerCreationMode}
+                onCreateMarkerAtCoordinate={handleCreateMarkerAtCoordinate}
+                onCreateMarkerAtCenter={handleCreateMarkerAtCenter}
                 onOpenSettings={() =>
                   runWithMarkerDirtyGuard({
                     message: "打开设置前，当前点位还有未保存的修改。",
@@ -859,17 +953,22 @@ function App() {
 
           {activePanel === "markers" ? (
             <MarkerDetailPanel
-              key={selectedMarkerRecord?.id ?? "empty-marker-detail"}
+              key={
+                pendingMarker
+                  ? `${pendingMarker.id}:${pendingMarker.source}:${pendingMarker.lng}:${pendingMarker.lat}`
+                  : selectedMarkerRecord?.id ?? "empty-marker-detail"
+              }
               projectId={projectWorkspace.currentProject.id}
               marker={selectedMarkerRecord}
+              pendingMarker={pendingMarker}
               onSaved={(marker) => {
+                clearPendingMarker();
                 setSelectedMarkerRecord(marker);
+                selectMarker(marker.id);
                 setMarkerListRefreshKey((currentKey) => currentKey + 1);
               }}
-              onCreateMarkerRequest={() => {
-                setProjectActionError("新建点位将在地图添加模式接入后启用。");
-                setActivePanel("markers");
-              }}
+              onPendingCanceled={cancelMarkerCreationMode}
+              onCreateMarkerRequest={startMarkerCreationMode}
               onCreateCategoryRequest={() => setActivePanel("settings")}
               onCreateTagRequest={() => setActivePanel("settings")}
               onError={(error) => setProjectActionError(getBackendErrorMessage(error))}

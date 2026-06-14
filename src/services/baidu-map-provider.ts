@@ -1,5 +1,5 @@
 import { loadBaiduMapScript, type BaiduMapLoadResult } from "@/services/baidu-map-loader";
-import type { MapMarkerItem, MapProvider, MapViewState } from "@/services/map-provider";
+import type { MapCoordinate, MapMarkerItem, MapProvider, MapViewState } from "@/services/map-provider";
 import type { MapLayer } from "@/types/project";
 
 interface BaiduPoint {
@@ -8,6 +8,7 @@ interface BaiduPoint {
 }
 
 interface BaiduMapInstance {
+  addEventListener?: (eventName: string, handler: (event: BaiduMapClickEvent) => void) => void;
   addOverlay(overlay: unknown): void;
   centerAndZoom(point: BaiduPoint, zoom: number): void;
   getCenter(): BaiduPoint;
@@ -15,6 +16,11 @@ interface BaiduMapInstance {
   removeOverlay(overlay: unknown): void;
   setMapType?: (mapType: unknown) => void;
   destroy?: () => void;
+}
+
+interface BaiduMapClickEvent {
+  latlng?: BaiduPoint;
+  point?: BaiduPoint;
 }
 
 interface BaiduIconOptions {
@@ -54,6 +60,7 @@ export class BaiduMapProvider implements MapProvider {
   private iconCache = new Map<string, unknown>();
   private isDestroyed = true;
   private layer: MapLayer = "normal";
+  private mapClickHandler: ((coordinate: MapCoordinate) => void) | null = null;
   private markerClickHandler: ((markerId: string) => void) | null = null;
   private markerItems: MapMarkerItem[] = [];
   private markerOverlays: BaiduMarkerInstance[] = [];
@@ -88,6 +95,12 @@ export class BaiduMapProvider implements MapProvider {
 
     this.container = container;
     this.map = new runtime.api.Map(container);
+    this.map.addEventListener?.("click", (event) => {
+      const coordinate = readClickCoordinate(event);
+      if (coordinate) {
+        this.mapClickHandler?.(coordinate);
+      }
+    });
     this.setView(view);
     this.setLayer(this.layer);
     this.renderMarkers();
@@ -164,6 +177,10 @@ export class BaiduMapProvider implements MapProvider {
 
   setMarkerClickHandler(handler: ((markerId: string) => void) | null) {
     this.markerClickHandler = handler;
+  }
+
+  setMapClickHandler(handler: ((coordinate: MapCoordinate) => void) | null) {
+    this.mapClickHandler = handler;
   }
 
   private loadScript(): Promise<BaiduMapLoadResult> {
@@ -256,6 +273,19 @@ function readBaiduMapGlobal() {
     api: runtimeWindow.BMapGL,
     normalMapType: runtimeWindow.BMAP_NORMAL_MAP,
     satelliteMapType: runtimeWindow.BMAP_SATELLITE_MAP,
+  };
+}
+
+function readClickCoordinate(event: BaiduMapClickEvent): MapCoordinate | null {
+  const point = event.latlng ?? event.point;
+
+  if (!point || !Number.isFinite(point.lng) || !Number.isFinite(point.lat)) {
+    return null;
+  }
+
+  return {
+    lng: point.lng,
+    lat: point.lat,
   };
 }
 

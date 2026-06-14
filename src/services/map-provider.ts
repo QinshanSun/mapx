@@ -17,6 +17,11 @@ export interface MapViewState {
   zoom: number;
 }
 
+export interface MapCoordinate {
+  lng: number;
+  lat: number;
+}
+
 export interface MapProvider {
   init(container: HTMLElement, view: MapViewState): Promise<void>;
   destroy(): void;
@@ -27,4 +32,5 @@ export interface MapProvider {
   setMarkers(markers: MapMarkerItem[]): void;
   setSelectedMarker(markerId: string | null): void;
   setMarkerClickHandler(handler: ((markerId: string) => void) | null): void;
+  setMapClickHandler(handler: ((coordinate: MapCoordinate) => void) | null): void;
 }
