@@ -20,6 +20,7 @@ Every issue is done only when:
 - Logs do not include Baidu AK, search keywords, full marker notes, or full addresses.
 - New code follows the existing project structure and naming once established.
 - Documentation is updated when behavior, setup, or architecture changes.
+- GitHub issue status is updated only after implementation is complete, validation has passed, and code is pushed to GitHub; completed issues are closed with a comment listing the commit, validation commands, and remaining risks, while partial progress is commented without closing the issue.
 
 ## Issue Template
 
