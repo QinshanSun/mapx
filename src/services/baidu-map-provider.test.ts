@@ -125,6 +125,42 @@ describe("baidu map provider", () => {
     expect(fake.instances[0].addOverlay).toHaveBeenCalledTimes(3);
   });
 
+  it("emits plain marker ids when Baidu markers are clicked", async () => {
+    const fake = createFakeApi();
+    const onSelectMarker = vi.fn();
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    provider.setMarkerClickHandler(onSelectMarker);
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+    provider.setMarkers([{ id: "marker-1", name: "客户点位", lng: 121.47, lat: 31.23, color: "#2563eb", icon: "Users" }]);
+
+    fake.markers[0].triggerClick();
+
+    expect(onSelectMarker).toHaveBeenCalledWith("marker-1");
+  });
+
+  it("renders the selected marker with selected styling", async () => {
+    const fake = createFakeApi();
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+    provider.setMarkers([
+      { id: "marker-1", name: "客户点位", lng: 121.47, lat: 31.23, color: "#2563eb", icon: "Users" },
+      { id: "marker-2", name: "仓库点位", lng: 121.48, lat: 31.24, color: "#f59e0b", icon: "Warehouse" },
+    ]);
+    provider.setSelectedMarker("marker-2");
+
+    expect(fake.instances[0].removeOverlay).toHaveBeenCalledTimes(2);
+    expect(fake.markers[3].setZIndex).toHaveBeenCalledWith(20);
+    expect(fake.icons.some((icon) => icon.url.includes(encodeURIComponent("#0f172a")))).toBe(true);
+  });
+
   it("keeps one thousand marker rendering inside the provider boundary", async () => {
     const fake = createFakeApi();
     const provider = new BaiduMapProvider("test-ak", {
@@ -237,10 +273,22 @@ class FakeIcon {
 }
 
 class FakeMarker {
+  private clickHandler: (() => void) | null = null;
+
+  readonly addEventListener = vi.fn((eventName: string, handler: () => void) => {
+    if (eventName === "click") {
+      this.clickHandler = handler;
+    }
+  });
   readonly setTitle = vi.fn();
+  readonly setZIndex = vi.fn();
 
   constructor(
     readonly point: { lng: number; lat: number },
     readonly options?: { icon?: unknown },
   ) {}
+
+  triggerClick() {
+    this.clickHandler?.();
+  }
 }

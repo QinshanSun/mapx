@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildMapMarkerItems } from "@/services/map-marker-render";
+import { buildMapMarkerItems, findMarkerById } from "@/services/map-marker-render";
 import type { CategoryRecord } from "@/types/category";
 import type { MarkerRecord } from "@/types/marker";
 
@@ -25,6 +25,14 @@ describe("map marker render items", () => {
         icon: "MapPin",
       },
     ]);
+  });
+
+  it("resolves selected marker records from the current filtered marker set", () => {
+    const visibleMarker = buildMarker({ id: "visible-marker" });
+    const hiddenMarker = buildMarker({ id: "hidden-marker" });
+
+    expect(findMarkerById([visibleMarker], "visible-marker")).toBe(visibleMarker);
+    expect(findMarkerById([visibleMarker], hiddenMarker.id)).toBeNull();
   });
 });
 

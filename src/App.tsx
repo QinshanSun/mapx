@@ -29,7 +29,7 @@ import { useWorkspaceActionEvents } from "@/hooks/use-workspace-action-events";
 import { getBackendErrorMessage } from "@/services/backend-error";
 import { getBootstrapStatus } from "@/services/bootstrap-service";
 import { resolveDirtyGuardChoice, type DirtyGuardChoice } from "@/services/dirty-guard";
-import { buildMapMarkerItems } from "@/services/map-marker-render";
+import { buildMapMarkerItems, findMarkerById } from "@/services/map-marker-render";
 import {
   createProject,
   getProjectWorkspace,
@@ -215,6 +215,25 @@ function App() {
     setFilteredMarkerRecords(markers);
     setMarkerCategories(categories);
   }, []);
+
+  const handleMapMarkerSelect = useCallback(
+    (markerId: string) => {
+      const marker = findMarkerById(filteredMarkerRecords, markerId);
+
+      if (!marker) {
+        return;
+      }
+
+      runWithMarkerDirtyGuard({
+        message: "切换点位前，当前点位还有未保存的修改。",
+        run: () => {
+          selectMarker(marker.id);
+          setSelectedMarkerRecord(marker);
+        },
+      });
+    },
+    [filteredMarkerRecords, runWithMarkerDirtyGuard, selectMarker],
+  );
 
   useEffect(() => {
     setFilteredMarkerRecords([]);
@@ -816,6 +835,8 @@ function App() {
                 baiduAk={firstLaunchSettings.baiduAk}
                 settings={projectWorkspace.settings}
                 markers={mapMarkers}
+                selectedMarkerId={selectedMarkerId}
+                onSelectMarker={handleMapMarkerSelect}
                 onOpenSettings={() =>
                   runWithMarkerDirtyGuard({
                     message: "打开设置前，当前点位还有未保存的修改。",

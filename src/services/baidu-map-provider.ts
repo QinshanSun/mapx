@@ -23,7 +23,10 @@ interface BaiduIconOptions {
 }
 
 interface BaiduMarkerInstance {
+  addEventListener?: (eventName: string, handler: () => void) => void;
+  setIcon?: (icon: unknown) => void;
   setTitle?: (title: string) => void;
+  setZIndex?: (zIndex: number) => void;
 }
 
 interface BaiduMapGlobal {
@@ -51,8 +54,10 @@ export class BaiduMapProvider implements MapProvider {
   private iconCache = new Map<string, unknown>();
   private isDestroyed = true;
   private layer: MapLayer = "normal";
+  private markerClickHandler: ((markerId: string) => void) | null = null;
   private markerItems: MapMarkerItem[] = [];
   private markerOverlays: BaiduMarkerInstance[] = [];
+  private selectedMarkerId: string | null = null;
 
   constructor(
     private readonly baiduAk: string,
@@ -152,6 +157,15 @@ export class BaiduMapProvider implements MapProvider {
     this.renderMarkers();
   }
 
+  setSelectedMarker(markerId: string | null) {
+    this.selectedMarkerId = markerId;
+    this.renderMarkers();
+  }
+
+  setMarkerClickHandler(handler: ((markerId: string) => void) | null) {
+    this.markerClickHandler = handler;
+  }
+
   private loadScript(): Promise<BaiduMapLoadResult> {
     return (this.options.loadScript ?? loadBaiduMapScript)(this.baiduAk);
   }
@@ -172,12 +186,17 @@ export class BaiduMapProvider implements MapProvider {
 
     this.clearMarkers();
     this.markerOverlays = this.markerItems.map((markerItem) => {
+      const isSelected = markerItem.id === this.selectedMarkerId;
       const point = new runtime.api.Point(markerItem.lng, markerItem.lat);
       const marker = new runtime.api.Marker(point, {
-        icon: this.getMarkerIcon(runtime.api, markerItem),
+        icon: this.getMarkerIcon(runtime.api, markerItem, isSelected),
       });
 
       marker.setTitle?.(markerItem.name);
+      marker.setZIndex?.(isSelected ? 20 : 10);
+      marker.addEventListener?.("click", () => {
+        this.markerClickHandler?.(markerItem.id);
+      });
       this.map?.addOverlay(marker);
       return marker;
     });
@@ -193,17 +212,19 @@ export class BaiduMapProvider implements MapProvider {
     this.markerOverlays = [];
   }
 
-  private getMarkerIcon(api: BaiduMapGlobal, markerItem: MapMarkerItem) {
-    const cacheKey = `${markerItem.color}:${markerItem.icon}`;
+  private getMarkerIcon(api: BaiduMapGlobal, markerItem: MapMarkerItem, isSelected: boolean) {
+    const cacheKey = `${markerItem.color}:${markerItem.icon}:${isSelected ? "selected" : "default"}`;
     const cachedIcon = this.iconCache.get(cacheKey);
 
     if (cachedIcon) {
       return cachedIcon;
     }
 
-    const size = new api.Size(30, 36);
-    const icon = new api.Icon(buildMarkerIconDataUrl(markerItem.color, markerItem.icon), size, {
-      anchor: new api.Size(15, 36),
+    const width = isSelected ? 36 : 30;
+    const height = isSelected ? 44 : 36;
+    const size = new api.Size(width, height);
+    const icon = new api.Icon(buildMarkerIconDataUrl(markerItem.color, markerItem.icon, isSelected), size, {
+      anchor: new api.Size(width / 2, height),
       imageSize: size,
     });
 
@@ -238,11 +259,15 @@ function readBaiduMapGlobal() {
   };
 }
 
-function buildMarkerIconDataUrl(color: string, iconName: string) {
+function buildMarkerIconDataUrl(color: string, iconName: string, isSelected: boolean) {
   const normalizedIconName = iconName.replace(/[^A-Za-z0-9]/g, "");
   const uppercaseLetters = normalizedIconName.replace(/[a-z0-9]/g, "");
   const label = (uppercaseLetters || normalizedIconName.charAt(0).toUpperCase() || "M").slice(0, 2);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="36" viewBox="0 0 30 36"><path d="M15 35C10 28 4 23 4 14a11 11 0 1 1 22 0c0 9-6 14-11 21Z" fill="${escapeSvgAttribute(color)}"/><circle cx="15" cy="14" r="8" fill="white" fill-opacity="0.92"/><text x="15" y="17" text-anchor="middle" font-family="Arial,sans-serif" font-size="8" font-weight="700" fill="${escapeSvgAttribute(color)}">${escapeSvgText(label)}</text></svg>`;
+  const width = isSelected ? 36 : 30;
+  const height = isSelected ? 44 : 36;
+  const scale = isSelected ? 1.16 : 1;
+  const stroke = isSelected ? `<path d="M15 35C10 28 4 23 4 14a11 11 0 1 1 22 0c0 9-6 14-11 21Z" fill="none" stroke="#0f172a" stroke-width="2" transform="translate(3 3) scale(${scale})"/>` : "";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${stroke}<path d="M15 35C10 28 4 23 4 14a11 11 0 1 1 22 0c0 9-6 14-11 21Z" fill="${escapeSvgAttribute(color)}" transform="translate(${isSelected ? 3 : 0} ${isSelected ? 3 : 0}) scale(${scale})"/><circle cx="${width / 2}" cy="${isSelected ? 19 : 14}" r="8" fill="white" fill-opacity="0.92"/><text x="${width / 2}" y="${isSelected ? 22 : 17}" text-anchor="middle" font-family="Arial,sans-serif" font-size="8" font-weight="700" fill="${escapeSvgAttribute(color)}">${escapeSvgText(label)}</text></svg>`;
 
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }

@@ -21,3 +21,7 @@ export function buildMapMarkerItems(markers: MarkerRecord[], categories: Categor
     };
   });
 }
+
+export function findMarkerById(markers: MarkerRecord[], markerId: string) {
+  return markers.find((marker) => marker.id === markerId) ?? null;
+}

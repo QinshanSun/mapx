@@ -17,11 +17,21 @@ interface MapCanvasProps {
   baiduAk: string | null;
   settings: ProjectMapSettings;
   markers: MapMarkerItem[];
+  selectedMarkerId: string | null;
+  onSelectMarker: (markerId: string) => void;
   onOpenSettings: () => void;
   onOpenLogDirectory: () => void | Promise<void>;
 }
 
-export function MapCanvas({ baiduAk, settings, markers, onOpenSettings, onOpenLogDirectory }: MapCanvasProps) {
+export function MapCanvas({
+  baiduAk,
+  settings,
+  markers,
+  selectedMarkerId,
+  onSelectMarker,
+  onOpenSettings,
+  onOpenLogDirectory,
+}: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const providerRef = useRef<MapProvider | null>(null);
   const [loadResult, setLoadResult] = useState<MapLoadResult | null>(null);
@@ -104,6 +114,18 @@ export function MapCanvas({ baiduAk, settings, markers, onOpenSettings, onOpenLo
   useEffect(() => {
     providerRef.current?.setMarkers(markers);
   }, [markers]);
+
+  useEffect(() => {
+    providerRef.current?.setSelectedMarker(selectedMarkerId);
+  }, [selectedMarkerId]);
+
+  useEffect(() => {
+    providerRef.current?.setMarkerClickHandler(onSelectMarker);
+
+    return () => {
+      providerRef.current?.setMarkerClickHandler(null);
+    };
+  }, [onSelectMarker]);
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-slate-100">

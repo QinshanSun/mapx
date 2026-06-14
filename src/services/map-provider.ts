@@ -25,4 +25,6 @@ export interface MapProvider {
   setLayer(layer: MapLayer): void;
   getLayer(): MapLayer;
   setMarkers(markers: MapMarkerItem[]): void;
+  setSelectedMarker(markerId: string | null): void;
+  setMarkerClickHandler(handler: ((markerId: string) => void) | null): void;
 }
