@@ -1,6 +1,7 @@
 import { Check, MapPin, Pencil, RotateCcw, X } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
+import { MarkerOverviewPanel } from "@/components/marker-overview-panel";
 import { Button } from "@/components/ui/button";
 import { listProjectCategories } from "@/services/category-service";
 import {
@@ -26,11 +27,23 @@ interface MarkerDetailPanelProps {
   projectId: string;
   marker: MarkerRecord | null;
   onSaved: (marker: MarkerRecord) => void;
+  onCreateMarkerRequest: () => void;
+  onCreateCategoryRequest: () => void;
+  onCreateTagRequest: () => void;
   onError: (error: unknown) => void;
   onDirtyHandlersChange: (handlers: MarkerDirtyHandlers | null) => void;
 }
 
-export function MarkerDetailPanel({ projectId, marker, onSaved, onError, onDirtyHandlersChange }: MarkerDetailPanelProps) {
+export function MarkerDetailPanel({
+  projectId,
+  marker,
+  onSaved,
+  onCreateMarkerRequest,
+  onCreateCategoryRequest,
+  onCreateTagRequest,
+  onError,
+  onDirtyHandlersChange,
+}: MarkerDetailPanelProps) {
   const [categories, setCategories] = useState<CategoryRecord[]>([]);
   const [tags, setTags] = useState<TagRecord[]>([]);
   const [isEditing, setIsEditing] = useState(false);
@@ -113,12 +126,13 @@ export function MarkerDetailPanel({ projectId, marker, onSaved, onError, onDirty
 
   if (!marker) {
     return (
-      <div className="space-y-4 p-5">
-        <section className="rounded-lg border border-dashed border-border p-4 text-sm leading-6 text-muted-foreground">
-          <MapPin className="mb-3 size-5 text-muted-foreground" />
-          <p>从左侧点位列表选择一个点位后，这里会显示详情和编辑入口。</p>
-        </section>
-      </div>
+      <MarkerOverviewPanel
+        projectId={projectId}
+        onCreateMarkerRequest={onCreateMarkerRequest}
+        onCreateCategoryRequest={onCreateCategoryRequest}
+        onCreateTagRequest={onCreateTagRequest}
+        onError={onError}
+      />
     );
   }
 

@@ -608,6 +608,12 @@ function App() {
                 setSelectedMarkerRecord(marker);
                 setMarkerListRefreshKey((currentKey) => currentKey + 1);
               }}
+              onCreateMarkerRequest={() => {
+                setProjectActionError("新建点位将在地图添加模式接入后启用。");
+                setActivePanel("markers");
+              }}
+              onCreateCategoryRequest={() => setActivePanel("settings")}
+              onCreateTagRequest={() => setActivePanel("settings")}
               onError={(error) => setProjectActionError(getBackendErrorMessage(error))}
               onDirtyHandlersChange={handleMarkerDirtyHandlersChange}
             />

@@ -11,7 +11,7 @@ See the V1 product and technical specification:
 
 ## Current Status
 
-The repository has the initial M1 foundation, the local data core through `DATA-004`, settings work through `SET-003`, project workspace work through `PROJ-002`, taxonomy defaults and category management through `TAX-002`, tag management through `TAX-004`, and marker management through `MRK-004`.
+The repository has the initial M1 foundation, the local data core through `DATA-004`, settings work through `SET-003`, project workspace work through `PROJ-002`, taxonomy defaults and category management through `TAX-002`, tag management through `TAX-004`, and marker management through `MRK-005`.
 
 Implemented foundation:
 
@@ -40,6 +40,7 @@ Implemented foundation:
 - Frontend marker list with category/tag filters, fixed sorting, and virtual scrolling
 - Marker detail panel with edit/save/cancel for name, address, category, tags, and note
 - Dirty-state guard with custom save/discard/cancel confirmation before conflicting marker actions
+- Right-side project overview when no marker is selected, with counts, recent markers, and quick actions
 - Basic scripts for development, typechecking, linting, frontend tests, frontend build, and Tauri build
 
 Last verified locally:
@@ -62,9 +63,9 @@ Note: the full default `npm run tauri:build` currently builds the release binary
 
 Work should continue from the M2 Local Workspace milestone in [docs/features-v1.md](docs/features-v1.md):
 
-1. `MRK-005`: add project overview empty state.
-2. `PROJ-003`: support project rename.
-3. `TAX-003`: implement category soft delete and uncategorize markers.
+1. `PROJ-003`: support project rename.
+2. `TAX-003`: implement category soft delete and uncategorize markers.
+3. `PROJ-004`: support project soft delete.
 
 ## Development
 
