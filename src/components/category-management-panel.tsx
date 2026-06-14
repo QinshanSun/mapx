@@ -1,4 +1,4 @@
-import { BadgeAlert, Check, MapPin, Pencil, Plus, Store, Users, Warehouse, X, type LucideIcon } from "lucide-react";
+import { BadgeAlert, Check, MapPin, Pencil, Plus, Store, Trash2, Users, Warehouse, X, type LucideIcon } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -10,8 +10,10 @@ import {
   validateCategoryForm,
   type CategoryFormState,
 } from "@/services/category-form";
-import { createCategory, listProjectCategories, updateCategory } from "@/services/category-service";
+import { createCategory, listProjectCategories, softDeleteCategory, updateCategory } from "@/services/category-service";
+import { listProjectMarkers } from "@/services/marker-service";
 import type { CategoryRecord } from "@/types/category";
+import type { MarkerRecord } from "@/types/marker";
 
 interface CategoryManagementPanelProps {
   projectId: string;
@@ -28,20 +30,27 @@ const CATEGORY_ICON_MAP: Record<string, LucideIcon> = {
 
 export function CategoryManagementPanel({ projectId, onError }: CategoryManagementPanelProps) {
   const [categories, setCategories] = useState<CategoryRecord[]>([]);
+  const [markers, setMarkers] = useState<MarkerRecord[]>([]);
   const [newCategoryForm, setNewCategoryForm] = useState<CategoryFormState>(() => categoryToFormState());
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editingForm, setEditingForm] = useState<CategoryFormState>(() => categoryToFormState());
+  const [pendingDeleteCategoryId, setPendingDeleteCategoryId] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const pendingDeleteCategory = categories.find((category) => category.id === pendingDeleteCategoryId) ?? null;
+  const affectedMarkerCount = pendingDeleteCategoryId
+    ? markers.filter((marker) => marker.categoryId === pendingDeleteCategoryId).length
+    : 0;
 
   useEffect(() => {
     let isActive = true;
 
-    listProjectCategories(projectId)
-      .then((nextCategories) => {
+    Promise.all([listProjectCategories(projectId), listProjectMarkers(projectId)])
+      .then(([nextCategories, nextMarkers]) => {
         if (isActive) {
           setCategories(nextCategories);
+          setMarkers(nextMarkers);
           setLocalError(null);
         }
       })
@@ -100,6 +109,29 @@ export function CategoryManagementPanel({ projectId, onError }: CategoryManageme
         currentCategories.map((categoryItem) => (categoryItem.id === category.id ? nextCategory : categoryItem)).sort(compareCategories),
       );
       setEditingCategoryId(null);
+      setLocalError(null);
+    } catch (error) {
+      onError(error);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDeleteConfirmed() {
+    if (!pendingDeleteCategory) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await softDeleteCategory(projectId, pendingDeleteCategory.id);
+      setCategories((currentCategories) => currentCategories.filter((category) => category.id !== pendingDeleteCategory.id));
+      setMarkers((currentMarkers) =>
+        currentMarkers.map((marker) =>
+          marker.categoryId === pendingDeleteCategory.id ? { ...marker, categoryId: null } : marker,
+        ),
+      );
+      setPendingDeleteCategoryId(null);
       setLocalError(null);
     } catch (error) {
       onError(error);
@@ -180,25 +212,60 @@ export function CategoryManagementPanel({ projectId, onError }: CategoryManageme
                       <p className="text-xs text-muted-foreground">{category.color}</p>
                     </div>
                   </div>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    aria-label={`编辑分类 ${category.name}`}
-                    onClick={() => {
-                      setEditingCategoryId(category.id);
-                      setEditingForm(categoryToFormState(category));
-                      setLocalError(null);
-                    }}
-                  >
-                    <Pencil />
-                  </Button>
+                  <div className="flex shrink-0 gap-1">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`编辑分类 ${category.name}`}
+                      onClick={() => {
+                        setEditingCategoryId(category.id);
+                        setEditingForm(categoryToFormState(category));
+                        setPendingDeleteCategoryId(null);
+                        setLocalError(null);
+                      }}
+                    >
+                      <Pencil />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`删除分类 ${category.name}`}
+                      onClick={() => {
+                        setPendingDeleteCategoryId(category.id);
+                        setEditingCategoryId(null);
+                        setLocalError(null);
+                      }}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>
           );
         })}
       </div>
+
+      {pendingDeleteCategory ? (
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm">
+          <p className="font-medium text-red-700">确认删除“{pendingDeleteCategory.name}”？</p>
+          <p className="mt-1 text-xs leading-5 text-red-700">
+            将有 {affectedMarkerCount} 个点位变为未分类，点位不会被删除。
+          </p>
+          <div className="mt-3 flex justify-end gap-2">
+            <Button type="button" size="sm" variant="outline" disabled={isSaving} onClick={() => setPendingDeleteCategoryId(null)}>
+              <X />
+              取消
+            </Button>
+            <Button type="button" size="sm" disabled={isSaving} onClick={handleDeleteConfirmed}>
+              <Trash2 />
+              删除
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

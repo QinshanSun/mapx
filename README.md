@@ -11,7 +11,7 @@ See the V1 product and technical specification:
 
 ## Current Status
 
-The repository has the initial M1 foundation, the local data core through `DATA-004`, settings work through `SET-003`, project workspace work through `PROJ-003`, taxonomy defaults and category management through `TAX-002`, tag management through `TAX-004`, and marker management through `MRK-005`.
+The repository has the initial M1 foundation, the local data core through `DATA-004`, settings work through `SET-003`, project workspace work through `PROJ-003`, taxonomy defaults and category management through `TAX-003`, tag management through `TAX-004`, and marker management through `MRK-005`.
 
 Implemented foundation:
 
@@ -36,6 +36,7 @@ Implemented foundation:
 - Current project rename command and sidebar rename UI
 - Default categories for new projects: `客户`、`门店`、`仓库`、`竞品`、`候选点`
 - Project category list/create/edit commands and settings-page category management UI
+- Project category soft delete with confirmation, affected-marker count, and automatic marker uncategorizing
 - Project tag list/create/rename/soft delete commands and settings-page tag management UI
 - Marker create/list/update/soft delete backend commands with BD-09 coordinate validation
 - Frontend marker list with category/tag filters, fixed sorting, and virtual scrolling
@@ -64,9 +65,9 @@ Note: the full default `npm run tauri:build` currently builds the release binary
 
 Work should continue from the M2 Local Workspace milestone in [docs/features-v1.md](docs/features-v1.md):
 
-1. `TAX-003`: implement category soft delete and uncategorize markers.
-2. `PROJ-004`: support project soft delete.
-3. `MAP-001`: spike Baidu AK origin and WebView behavior.
+1. `PROJ-004`: support project soft delete.
+2. `MAP-001`: spike Baidu AK origin and WebView behavior.
+3. `MAP-006`: spike minimal Baidu CSP and domain allowlist.
 
 ## Development
 

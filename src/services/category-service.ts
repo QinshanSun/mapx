@@ -47,6 +47,14 @@ export function updateCategory(projectId: string, categoryId: string, input: Cat
   return callCommand<CategoryRecord>("update_category", { request: { projectId, categoryId, ...input } });
 }
 
+export function softDeleteCategory(projectId: string, categoryId: string) {
+  if (!isTauri()) {
+    return Promise.resolve();
+  }
+
+  return callCommand<void>("soft_delete_category", { request: { projectId, categoryId } });
+}
+
 function buildPreviewCategory(
   id: string,
   name: string,

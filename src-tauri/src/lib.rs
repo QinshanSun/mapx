@@ -111,6 +111,7 @@ pub fn run() {
             tags::update_tag,
             taxonomy::create_category,
             taxonomy::list_project_categories,
+            taxonomy::soft_delete_category,
             taxonomy::update_category,
             health_check,
             get_bootstrap_status,

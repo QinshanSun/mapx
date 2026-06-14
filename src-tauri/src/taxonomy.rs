@@ -53,6 +53,13 @@ pub struct UpdateCategoryRequest {
     pub icon: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoftDeleteCategoryRequest {
+    pub project_id: String,
+    pub category_id: String,
+}
+
 pub const LUCIDE_CATEGORY_ICON_ALLOWLIST: &[&str] =
     &["Users", "Store", "Warehouse", "BadgeAlert", "MapPin"];
 
@@ -128,6 +135,16 @@ pub async fn update_category(
     let pool = state.pool.clone().ok_or_else(AppError::db)?;
 
     save_category_changes(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn soft_delete_category(
+    state: tauri::State<'_, AppRuntimeState>,
+    request: SoftDeleteCategoryRequest,
+) -> Result<(), AppError> {
+    let pool = state.pool.clone().ok_or_else(AppError::db)?;
+
+    delete_category(&pool, &request.project_id, &request.category_id).await
 }
 
 pub async fn list_categories(
@@ -218,6 +235,49 @@ pub async fn save_category_changes(
     .map_err(AppError::from)?;
 
     load_category_by_id(pool, &project_id, &category_id).await
+}
+
+pub async fn delete_category(
+    pool: &SqlitePool,
+    project_id: &str,
+    category_id: &str,
+) -> Result<(), AppError> {
+    ensure_active_project(pool, project_id).await?;
+    ensure_record_belongs_to_project(pool, "categories", category_id, project_id).await?;
+
+    let mut transaction = pool.begin().await.map_err(AppError::from)?;
+
+    sqlx::query(
+        "UPDATE categories
+         SET deleted_at = datetime('now'),
+             updated_at = datetime('now')
+         WHERE id = ?
+           AND project_id = ?
+           AND deleted_at IS NULL",
+    )
+    .bind(category_id)
+    .bind(project_id)
+    .execute(&mut *transaction)
+    .await
+    .map_err(AppError::from)?;
+
+    sqlx::query(
+        "UPDATE markers
+         SET category_id = NULL,
+             updated_at = datetime('now')
+         WHERE project_id = ?
+           AND category_id = ?
+           AND deleted_at IS NULL",
+    )
+    .bind(project_id)
+    .bind(category_id)
+    .execute(&mut *transaction)
+    .await
+    .map_err(AppError::from)?;
+
+    transaction.commit().await.map_err(AppError::from)?;
+
+    Ok(())
 }
 
 async fn insert_default_category(
@@ -470,6 +530,49 @@ mod tests {
         assert_eq!(icon_error.message, "分类图标不在允许列表中。");
     }
 
+    #[tokio::test]
+    async fn deleting_category_uncategorizes_markers_without_deleting_them() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        insert_project_row(&pool, "project-1").await;
+        let category = insert_category(&pool, new_create_request("客户", "#2563eb", "Users"))
+            .await
+            .expect("category should be created");
+        insert_marker_row(&pool, "marker-1", "project-1", Some(&category.id)).await;
+
+        delete_category(&pool, "project-1", &category.id)
+            .await
+            .expect("category should soft delete");
+
+        let categories = list_categories(&pool, "project-1")
+            .await
+            .expect("categories should load");
+        let marker_row = sqlx::query(
+            "SELECT category_id, deleted_at
+             FROM markers
+             WHERE id = ?
+               AND project_id = ?",
+        )
+        .bind("marker-1")
+        .bind("project-1")
+        .fetch_one(&pool)
+        .await
+        .expect("marker should remain in database");
+
+        assert!(categories.is_empty());
+        assert_eq!(
+            marker_row
+                .try_get::<Option<String>, _>("category_id")
+                .expect("category id should read"),
+            None
+        );
+        assert_eq!(
+            marker_row
+                .try_get::<Option<String>, _>("deleted_at")
+                .expect("deleted_at should read"),
+            None
+        );
+    }
+
     async fn create_test_pool() -> (tempfile::TempDir, SqlitePool) {
         let temp_dir = tempfile::tempdir().expect("temp dir");
         let database = bootstrap_database_in(temp_dir.path().to_path_buf())
@@ -509,5 +612,23 @@ mod tests {
         .execute(pool)
         .await
         .expect("soft delete category row");
+    }
+
+    async fn insert_marker_row(
+        pool: &SqlitePool,
+        marker_id: &str,
+        project_id: &str,
+        category_id: Option<&str>,
+    ) {
+        sqlx::query(
+            "INSERT INTO markers (id, project_id, name, lng, lat, coordinate_system, address, category_id, note, source, created_at, updated_at, deleted_at)
+             VALUES (?, ?, '测试点位', 121.4737, 31.2304, 'BD09', NULL, ?, NULL, 'manual', datetime('now'), datetime('now'), NULL)",
+        )
+        .bind(marker_id)
+        .bind(project_id)
+        .bind(category_id)
+        .execute(pool)
+        .await
+        .expect("insert marker");
     }
 }
