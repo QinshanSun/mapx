@@ -1,0 +1,18 @@
+[package]
+name = "mapx"
+version = "0.1.0"
+description = "MapX desktop app"
+authors = ["Qinshan Sun"]
+edition = "2021"
+
+[lib]
+name = "mapx_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.1", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.0", features = [] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
