@@ -34,6 +34,7 @@ import { resolveDirtyGuardChoice, type DirtyGuardChoice } from "@/services/dirty
 import {
   createPendingMarkerFromCenter,
   createPendingMarkerFromMapClick,
+  createPendingMarkerFromPoi,
   type PendingMarkerCreation,
 } from "@/services/marker-creation";
 import type { BaiduPoiResult } from "@/services/baidu-poi-search-provider";
@@ -135,7 +136,7 @@ function App() {
         ...markerItems,
         {
           id: pendingMarker.id,
-          name: "待保存点位",
+          name: pendingMarker.initialName ?? "待保存点位",
           lng: pendingMarker.lng,
           lat: pendingMarker.lat,
           color: "#dc2626",
@@ -334,6 +335,7 @@ function App() {
         message: "新建点位前，当前点位还有未保存的修改。",
         run: () => {
           setPendingMarker(nextPendingMarker);
+          setPoiPreview(cancelPoiPreview());
           setSelectedMarkerRecord(null);
           selectMarker(null);
           setActivePanel("markers");
@@ -367,6 +369,14 @@ function App() {
     },
     [beginPendingMarkerCreation, projectWorkspace],
   );
+
+  const handleSavePoiPreviewAsMarker = useCallback(() => {
+    if (!projectWorkspace || !poiPreview) {
+      return;
+    }
+
+    beginPendingMarkerCreation(createPendingMarkerFromPoi(projectWorkspace.currentProject.id, poiPreview));
+  }, [beginPendingMarkerCreation, poiPreview, projectWorkspace]);
 
   useEffect(() => {
     setFilteredMarkerRecords([]);
@@ -1039,7 +1049,7 @@ function App() {
             <MarkerDetailPanel
               key={
                 pendingMarker
-                  ? `${pendingMarker.id}:${pendingMarker.source}:${pendingMarker.lng}:${pendingMarker.lat}`
+                  ? `${pendingMarker.id}:${pendingMarker.source}:${pendingMarker.lng}:${pendingMarker.lat}:${pendingMarker.initialName ?? ""}`
                   : selectedMarkerRecord?.id ?? "empty-marker-detail"
               }
               projectId={projectWorkspace.currentProject.id}
@@ -1088,6 +1098,10 @@ function App() {
                   <Button type="button" size="sm" variant="outline" className="mt-4" onClick={handleCancelPoiPreview}>
                     <X />
                     取消预览
+                  </Button>
+                  <Button type="button" size="sm" className="ml-2 mt-4" onClick={handleSavePoiPreviewAsMarker}>
+                    <Check />
+                    保存为点位
                   </Button>
                 </section>
               ) : null}

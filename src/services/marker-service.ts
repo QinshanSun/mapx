@@ -6,10 +6,12 @@ import { callCommand } from "@/services/tauri-client";
 import type { MarkerDraft, MarkerRecord, MarkerUpdate } from "@/types/marker";
 
 const previewNow = "2026-06-14T00:00:00Z";
+const previewMarkersByProject = new Map<string, MarkerRecord[]>();
+let previewMarkerCreateCount = 0;
 
 export function listProjectMarkers(projectId: string) {
   if (!isTauri()) {
-    return Promise.resolve(buildPreviewMarkers(projectId, 1000));
+    return Promise.resolve(getPreviewMarkers(projectId));
   }
 
   return callCommand<MarkerRecord[]>("list_project_markers", { request: { projectId } });
@@ -17,7 +19,7 @@ export function listProjectMarkers(projectId: string) {
 
 export function searchProjectMarkers(projectId: string, keyword: string) {
   if (!isTauri()) {
-    return Promise.resolve(searchLocalMarkers(buildPreviewMarkers(projectId, 1000), PREVIEW_CATEGORIES, [], keyword));
+    return Promise.resolve(searchLocalMarkers(getPreviewMarkers(projectId), PREVIEW_CATEGORIES, [], keyword));
   }
 
   return callCommand<MarkerRecord[]>("search_project_markers", { request: { projectId, keyword } });
@@ -25,7 +27,9 @@ export function searchProjectMarkers(projectId: string, keyword: string) {
 
 export function createMarker(draft: MarkerDraft) {
   if (!isTauri()) {
-    return Promise.resolve(buildPreviewMarker(draft));
+    const marker = buildPreviewMarker(draft, `preview-created-marker-${++previewMarkerCreateCount}`);
+    previewMarkersByProject.set(draft.projectId, [marker, ...getPreviewMarkers(draft.projectId)]);
+    return Promise.resolve(marker);
   }
 
   return callCommand<MarkerRecord>("create_marker", { request: draft });
@@ -33,7 +37,12 @@ export function createMarker(draft: MarkerDraft) {
 
 export function updateMarker(update: MarkerUpdate) {
   if (!isTauri()) {
-    return Promise.resolve(buildPreviewMarker(update, update.markerId));
+    const marker = buildPreviewMarker(update, update.markerId);
+    previewMarkersByProject.set(
+      update.projectId,
+      getPreviewMarkers(update.projectId).map((currentMarker) => (currentMarker.id === update.markerId ? marker : currentMarker)),
+    );
+    return Promise.resolve(marker);
   }
 
   return callCommand<MarkerRecord>("update_marker", { request: update });
@@ -41,10 +50,26 @@ export function updateMarker(update: MarkerUpdate) {
 
 export function softDeleteMarker(projectId: string, markerId: string) {
   if (!isTauri()) {
+    previewMarkersByProject.set(
+      projectId,
+      getPreviewMarkers(projectId).filter((marker) => marker.id !== markerId),
+    );
     return Promise.resolve();
   }
 
   return callCommand<void>("soft_delete_marker", { request: { projectId, markerId } });
+}
+
+function getPreviewMarkers(projectId: string) {
+  const existingMarkers = previewMarkersByProject.get(projectId);
+
+  if (existingMarkers) {
+    return existingMarkers;
+  }
+
+  const markers = buildPreviewMarkers(projectId, 1000);
+  previewMarkersByProject.set(projectId, markers);
+  return markers;
 }
 
 function buildPreviewMarker(draft: MarkerDraft, markerId = "preview-marker"): MarkerRecord {

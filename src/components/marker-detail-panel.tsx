@@ -206,7 +206,7 @@ export function MarkerDetailPanel({
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">来源</dt>
-              <dd className="mt-1 font-medium">{pendingMarker.source === "center" ? "地图中心" : "地图点击"}</dd>
+              <dd className="mt-1 font-medium">{getPendingMarkerSourceLabel(pendingMarker.source)}</dd>
             </div>
           </dl>
 
@@ -363,6 +363,18 @@ export function MarkerDetailPanel({
       </section>
     </form>
   );
+}
+
+function getPendingMarkerSourceLabel(source: PendingMarkerCreation["source"]) {
+  if (source === "center") {
+    return "地图中心";
+  }
+
+  if (source === "search") {
+    return "百度搜索";
+  }
+
+  return "地图点击";
 }
 
 interface MarkerFormFieldsProps {

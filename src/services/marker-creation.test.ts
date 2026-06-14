@@ -4,6 +4,7 @@ import {
   buildMarkerDraftFromPending,
   createPendingMarkerFromCenter,
   createPendingMarkerFromMapClick,
+  createPendingMarkerFromPoi,
   isPendingMarkerDirty,
   pendingMarkerToFormState,
 } from "@/services/marker-creation";
@@ -40,6 +41,34 @@ describe("marker creation pending state", () => {
       tagIds: [],
       note: "中心点",
       source: "center",
+    });
+  });
+
+  it("prefills Baidu POI name and address before saving a search marker", () => {
+    const pendingMarker = createPendingMarkerFromPoi("project-1", {
+      id: "poi-1",
+      name: "人民广场",
+      lng: 121.475,
+      lat: 31.234,
+      address: "上海市黄浦区人民大道",
+      city: "上海",
+      source: "baidu",
+    });
+
+    const formState = pendingMarkerToFormState(pendingMarker);
+
+    expect(formState).toMatchObject({
+      name: "人民广场",
+      address: "上海市黄浦区人民大道",
+    });
+    expect(buildMarkerDraftFromPending(pendingMarker, { ...formState, note: "  搜索保存  " })).toMatchObject({
+      projectId: "project-1",
+      name: "人民广场",
+      lng: 121.475,
+      lat: 31.234,
+      address: "上海市黄浦区人民大道",
+      note: "搜索保存",
+      source: "search",
     });
   });
 });

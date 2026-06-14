@@ -1,5 +1,5 @@
 import type { MarkerDetailFormState } from "@/services/marker-detail-form";
-import type { MapCoordinate } from "@/services/map-provider";
+import type { MapCoordinate, MapPoiPreview } from "@/services/map-provider";
 import type { MarkerDraft, MarkerSource } from "@/types/marker";
 
 export interface PendingMarkerCreation {
@@ -8,6 +8,8 @@ export interface PendingMarkerCreation {
   lng: number;
   lat: number;
   source: MarkerSource;
+  initialName?: string;
+  initialAddress?: string | null;
 }
 
 const PENDING_MARKER_ID = "pending-marker";
@@ -28,10 +30,18 @@ export function createPendingMarkerFromCenter(projectId: string, coordinate: Map
   return createPendingMarker(projectId, coordinate, "center");
 }
 
+export function createPendingMarkerFromPoi(projectId: string, poiPreview: MapPoiPreview): PendingMarkerCreation {
+  return {
+    ...createPendingMarker(projectId, poiPreview, "search"),
+    initialName: poiPreview.name,
+    initialAddress: poiPreview.address,
+  };
+}
+
 export function pendingMarkerToFormState(pendingMarker: PendingMarkerCreation): MarkerDetailFormState {
   return {
-    name: pendingMarker.source === "center" ? "地图中心点" : "新建点位",
-    address: "",
+    name: getPendingMarkerInitialName(pendingMarker),
+    address: pendingMarker.initialAddress ?? "",
     categoryId: "",
     tagIds: [],
     note: "",
@@ -71,4 +81,20 @@ function createPendingMarker(
     lat: coordinate.lat,
     source,
   };
+}
+
+function getPendingMarkerInitialName(pendingMarker: PendingMarkerCreation) {
+  if (pendingMarker.initialName?.trim()) {
+    return pendingMarker.initialName.trim();
+  }
+
+  if (pendingMarker.source === "center") {
+    return "地图中心点";
+  }
+
+  if (pendingMarker.source === "search") {
+    return "百度地点";
+  }
+
+  return "新建点位";
 }

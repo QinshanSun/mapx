@@ -603,6 +603,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn creates_search_marker_with_poi_source_and_address() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        insert_project_row(&pool, "project-1").await;
+        let mut request = new_create_request("人民广场", None);
+        request.address = Some(" 上海市黄浦区人民大道 ".to_string());
+        request.source = Some("search".to_string());
+
+        let marker = insert_marker(&pool, request)
+            .await
+            .expect("search marker should be created");
+
+        assert_eq!(marker.name, "人民广场");
+        assert_eq!(marker.address, Some("上海市黄浦区人民大道".to_string()));
+        assert_eq!(marker.source, "search");
+        assert_eq!(marker.coordinate_system, "BD09");
+    }
+
+    #[tokio::test]
     async fn updates_marker_fields() {
         let (_temp_dir, pool) = create_test_pool().await;
         insert_project_row(&pool, "project-1").await;
