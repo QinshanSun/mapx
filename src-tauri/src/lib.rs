@@ -104,6 +104,7 @@ pub fn run() {
             projects::select_project_workspace,
             projects::soft_delete_project,
             projects::update_project_map_layer,
+            projects::update_project_search_city,
             markers::create_marker,
             markers::list_project_markers,
             markers::search_project_markers,

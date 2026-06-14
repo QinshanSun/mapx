@@ -74,6 +74,13 @@ pub struct UpdateProjectMapLayerRequest {
     pub map_layer: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProjectSearchCityRequest {
+    pub project_id: String,
+    pub search_city: String,
+}
+
 #[tauri::command]
 pub async fn get_project_workspace(
     state: tauri::State<'_, AppRuntimeState>,
@@ -146,6 +153,18 @@ pub async fn update_project_map_layer(
     let default_city = load_default_city(&pool).await?;
 
     update_map_layer(&pool, &request.project_id, &request.map_layer).await?;
+    load_project_workspace(&pool, &default_city, Some(request.project_id.as_str())).await
+}
+
+#[tauri::command]
+pub async fn update_project_search_city(
+    state: tauri::State<'_, AppRuntimeState>,
+    request: UpdateProjectSearchCityRequest,
+) -> Result<ProjectWorkspace, AppError> {
+    let pool = state.pool.clone().ok_or_else(AppError::db)?;
+    let default_city = load_default_city(&pool).await?;
+
+    update_search_city(&pool, &request.project_id, &request.search_city).await?;
     load_project_workspace(&pool, &default_city, Some(request.project_id.as_str())).await
 }
 
@@ -341,6 +360,30 @@ async fn update_map_layer(
            AND deleted_at IS NULL",
     )
     .bind(map_layer)
+    .bind(project_id)
+    .execute(pool)
+    .await
+    .map_err(AppError::from)?;
+
+    Ok(())
+}
+
+async fn update_search_city(
+    pool: &SqlitePool,
+    project_id: &str,
+    search_city: &str,
+) -> Result<(), AppError> {
+    let search_city = validate_city_name(search_city)?;
+    ensure_active_project(pool, project_id).await?;
+
+    sqlx::query(
+        "UPDATE project_settings
+         SET search_city = ?,
+             updated_at = datetime('now')
+         WHERE project_id = ?
+           AND deleted_at IS NULL",
+    )
+    .bind(search_city)
     .bind(project_id)
     .execute(pool)
     .await
@@ -740,6 +783,47 @@ mod tests {
             .expect_err("unsupported layer should fail");
 
         assert_eq!(error.message, "地图图层只能是普通地图或卫星图。");
+    }
+
+    #[tokio::test]
+    async fn updates_project_search_city_per_project() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        let first_project = insert_project_with_settings(&pool, "项目一", "上海")
+            .await
+            .expect("first project should be created");
+        let second_project = insert_project_with_settings(&pool, "项目二", "上海")
+            .await
+            .expect("second project should be created");
+
+        update_search_city(&pool, &first_project.id, "杭州")
+            .await
+            .expect("search city should update");
+
+        let first_workspace =
+            load_project_workspace(&pool, "上海", Some(first_project.id.as_str()))
+                .await
+                .expect("first workspace should load");
+        let second_workspace =
+            load_project_workspace(&pool, "上海", Some(second_project.id.as_str()))
+                .await
+                .expect("second workspace should load");
+
+        assert_eq!(first_workspace.settings.search_city, "杭州");
+        assert_eq!(second_workspace.settings.search_city, "上海");
+    }
+
+    #[tokio::test]
+    async fn search_city_rejects_unsupported_city() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        let project = insert_project_with_settings(&pool, "项目", "上海")
+            .await
+            .expect("project should be created");
+
+        let error = update_search_city(&pool, &project.id, "纽约")
+            .await
+            .expect_err("unsupported city should fail");
+
+        assert_eq!(error.message, "默认城市不在支持列表中。");
     }
 
     #[tokio::test]

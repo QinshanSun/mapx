@@ -6,6 +6,7 @@ import {
   selectProject,
   softDeleteProject,
   updateProjectMapLayer,
+  updateProjectSearchCity,
   validateProjectName,
 } from "@/services/project-service";
 
@@ -43,6 +44,13 @@ describe("project service", () => {
     const nextWorkspace = await updateProjectMapLayer("preview-project", "satellite", workspace);
 
     expect(nextWorkspace.settings.mapLayer).toBe("satellite");
+  });
+
+  it("previews project search city updates", async () => {
+    const workspace = buildPreviewProjectWorkspace("上海");
+    const nextWorkspace = await updateProjectSearchCity("preview-project", "杭州", workspace);
+
+    expect(nextWorkspace.settings.searchCity).toBe("杭州");
   });
 
   it("validates and previews project rename", async () => {

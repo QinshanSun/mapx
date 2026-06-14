@@ -13,6 +13,8 @@ interface MapLoadResult {
   message?: string;
 }
 
+export type MapCanvasAvailability = "missing-ak" | "loading" | "ready" | "failed";
+
 interface MapCanvasProps {
   baiduAk: string | null;
   settings: ProjectMapSettings;
@@ -27,6 +29,7 @@ interface MapCanvasProps {
   onCreateMarkerAtCenter: (coordinate: MapCoordinate) => void;
   onOpenSettings: () => void;
   onOpenLogDirectory: () => void | Promise<void>;
+  onAvailabilityChange?: (availability: MapCanvasAvailability) => void;
 }
 
 export function MapCanvas({
@@ -43,6 +46,7 @@ export function MapCanvas({
   onCreateMarkerAtCenter,
   onOpenSettings,
   onOpenLogDirectory,
+  onAvailabilityChange,
 }: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const providerRef = useRef<MapProvider | null>(null);
@@ -60,7 +64,7 @@ export function MapCanvas({
     [settings.mapCenterLat, settings.mapCenterLng, settings.mapZoom],
   );
   const loadKey = `${ak}:${view.center.lng}:${view.center.lat}:${view.zoom}:${retryCount}`;
-  const status = !ak ? "missing-ak" : loadResult?.key === loadKey ? loadResult.status : "loading";
+  const status: MapCanvasAvailability = !ak ? "missing-ak" : loadResult?.key === loadKey ? loadResult.status : "loading";
   const message = loadResult?.key === loadKey ? loadResult.message : null;
   const overlay = resolveMapCanvasOverlay(status, message);
 
@@ -82,6 +86,10 @@ export function MapCanvas({
   function handleCreateAtCenter() {
     onCreateMarkerAtCenter(providerRef.current?.getView()?.center ?? view.center);
   }
+
+  useEffect(() => {
+    onAvailabilityChange?.(status);
+  }, [onAvailabilityChange, status]);
 
   useEffect(() => {
     let disposed = false;

@@ -35,15 +35,16 @@ interface BaiduMarkerInstance {
   setZIndex?: (zIndex: number) => void;
 }
 
-interface BaiduMapGlobal {
+export interface BaiduMapGlobal {
   Icon: new (url: string, size: unknown, options?: BaiduIconOptions) => unknown;
+  LocalSearch?: unknown;
   Map: new (container: HTMLElement) => BaiduMapInstance;
   Marker: new (point: BaiduPoint, options?: { icon?: unknown }) => BaiduMarkerInstance;
   Point: new (lng: number, lat: number) => BaiduPoint;
   Size: new (width: number, height: number) => unknown;
 }
 
-interface BaiduMapRuntime {
+export interface BaiduMapRuntime {
   api: BaiduMapGlobal;
   normalMapType?: unknown;
   satelliteMapType?: unknown;
@@ -188,7 +189,7 @@ export class BaiduMapProvider implements MapProvider {
   }
 
   private getRuntime() {
-    return this.options.getGlobal?.() ?? readBaiduMapGlobal();
+    return this.options.getGlobal?.() ?? readBaiduMapRuntime();
   }
 
   private renderMarkers() {
@@ -254,7 +255,7 @@ export function createBaiduMapProvider(baiduAk: string) {
   return new BaiduMapProvider(baiduAk);
 }
 
-function readBaiduMapGlobal() {
+export function readBaiduMapRuntime() {
   if (typeof window === "undefined") {
     return undefined;
   }

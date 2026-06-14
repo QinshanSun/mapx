@@ -1,6 +1,6 @@
 import { isTauri } from "@tauri-apps/api/core";
 
-import { CHINA_CITIES } from "@/data/china-cities";
+import { CHINA_CITIES, normalizeCityName } from "@/data/china-cities";
 import { DEFAULT_CITY } from "@/services/settings-service";
 import { callCommand } from "@/services/tauri-client";
 import type { MapLayer, ProjectWorkspace } from "@/types/project";
@@ -97,6 +97,22 @@ export function updateProjectMapLayer(projectId: string, mapLayer: MapLayer, cur
   }
 
   return callCommand<ProjectWorkspace>("update_project_map_layer", { request: { projectId, mapLayer } });
+}
+
+export function updateProjectSearchCity(projectId: string, searchCity: string, currentWorkspace: ProjectWorkspace) {
+  const nextSearchCity = normalizeCityName(searchCity, currentWorkspace.settings.searchCity);
+
+  if (!isTauri()) {
+    return Promise.resolve({
+      ...currentWorkspace,
+      settings: {
+        ...currentWorkspace.settings,
+        searchCity: nextSearchCity,
+      },
+    });
+  }
+
+  return callCommand<ProjectWorkspace>("update_project_search_city", { request: { projectId, searchCity: nextSearchCity } });
 }
 
 export function buildPreviewProjectWorkspace(

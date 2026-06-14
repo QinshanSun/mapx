@@ -20,7 +20,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { FirstLaunchFlow } from "@/components/first-launch-flow";
-import { MapCanvas } from "@/components/map-canvas";
+import { MapCanvas, type MapCanvasAvailability } from "@/components/map-canvas";
 import { MarkerDetailPanel, type MarkerDirtyHandlers } from "@/components/marker-detail-panel";
 import { MarkerListPanel } from "@/components/marker-list-panel";
 import { SearchPanel } from "@/components/search-panel";
@@ -45,6 +45,7 @@ import {
   selectProject,
   softDeleteProject,
   updateProjectMapLayer,
+  updateProjectSearchCity,
   validateProjectName,
 } from "@/services/project-service";
 import { getFirstLaunchSettings, openLogDirectory } from "@/services/settings-service";
@@ -112,6 +113,7 @@ function App() {
     sortKey: "updatedDesc",
   });
   const [markerListRefreshKey, setMarkerListRefreshKey] = useState(0);
+  const [mapAvailability, setMapAvailability] = useState<MapCanvasAvailability>("loading");
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | null>(null);
   const [isProjectSaving, setIsProjectSaving] = useState(false);
   const [isProjectRenaming, setIsProjectRenaming] = useState(false);
@@ -635,6 +637,23 @@ function App() {
     [projectWorkspace, runWithMarkerDirtyGuard],
   );
 
+  const handleSearchCityChange = useCallback(
+    (searchCity: string) => {
+      if (!projectWorkspace || projectWorkspace.settings.searchCity === searchCity) {
+        return Promise.resolve();
+      }
+
+      return updateProjectSearchCity(projectWorkspace.currentProject.id, searchCity, projectWorkspace)
+        .then(setProjectWorkspace)
+        .catch((error) => {
+          const message = getBackendErrorMessage(error);
+          setProjectActionError(message);
+          throw new Error(message);
+        });
+    },
+    [projectWorkspace],
+  );
+
   const handlePanelSelect = useCallback(
     (panel: WorkspacePanel) => {
       if (activePanel === panel) {
@@ -936,7 +955,11 @@ function App() {
             ) : activePanel === "search" ? (
               <SearchPanel
                 projectId={projectWorkspace.currentProject.id}
+                baiduAk={firstLaunchSettings.baiduAk}
+                searchCity={projectWorkspace.settings.searchCity}
+                mapAvailability={mapAvailability}
                 selectedMarkerId={selectedMarkerId}
+                onSearchCityChange={handleSearchCityChange}
                 onSelectMarker={(marker) => {
                   runWithMarkerDirtyGuard({
                     message: "打开搜索结果前，当前点位还有未保存的修改。",
@@ -969,6 +992,7 @@ function App() {
                 onOpenLogDirectory={() =>
                   openLogDirectory().catch((error) => setProjectActionError(getBackendErrorMessage(error)))
                 }
+                onAvailabilityChange={setMapAvailability}
               />
             </div>
           </div>
