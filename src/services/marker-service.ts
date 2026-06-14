@@ -1,6 +1,7 @@
 import { isTauri } from "@tauri-apps/api/core";
 
 import { PREVIEW_CATEGORIES } from "@/services/category-service";
+import { searchLocalMarkers } from "@/services/marker-search";
 import { callCommand } from "@/services/tauri-client";
 import type { MarkerDraft, MarkerRecord, MarkerUpdate } from "@/types/marker";
 
@@ -12,6 +13,14 @@ export function listProjectMarkers(projectId: string) {
   }
 
   return callCommand<MarkerRecord[]>("list_project_markers", { request: { projectId } });
+}
+
+export function searchProjectMarkers(projectId: string, keyword: string) {
+  if (!isTauri()) {
+    return Promise.resolve(searchLocalMarkers(buildPreviewMarkers(projectId, 1000), PREVIEW_CATEGORIES, [], keyword));
+  }
+
+  return callCommand<MarkerRecord[]>("search_project_markers", { request: { projectId, keyword } });
 }
 
 export function createMarker(draft: MarkerDraft) {

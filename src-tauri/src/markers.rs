@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
+use std::collections::HashMap;
 
 use crate::{
     db::AppRuntimeState,
@@ -34,6 +35,13 @@ pub struct MarkerRecord {
 #[serde(rename_all = "camelCase")]
 pub struct ListMarkersRequest {
     pub project_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchMarkersRequest {
+    pub project_id: String,
+    pub keyword: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -80,6 +88,16 @@ pub async fn list_project_markers(
     let pool = state.pool.clone().ok_or_else(AppError::db)?;
 
     list_markers(&pool, &request.project_id).await
+}
+
+#[tauri::command]
+pub async fn search_project_markers(
+    state: tauri::State<'_, AppRuntimeState>,
+    request: SearchMarkersRequest,
+) -> Result<Vec<MarkerRecord>, AppError> {
+    let pool = state.pool.clone().ok_or_else(AppError::db)?;
+
+    search_markers(&pool, &request.project_id, &request.keyword).await
 }
 
 #[tauri::command]
@@ -138,6 +156,29 @@ pub async fn list_markers(
     }
 
     Ok(markers)
+}
+
+pub async fn search_markers(
+    pool: &SqlitePool,
+    project_id: &str,
+    keyword: &str,
+) -> Result<Vec<MarkerRecord>, AppError> {
+    let markers = list_markers(pool, project_id).await?;
+    let keyword = normalize_search_text(keyword);
+
+    if keyword.is_empty() {
+        return Ok(markers);
+    }
+
+    let category_names = load_category_names(pool, project_id).await?;
+    let tag_names_by_marker = load_tag_names_by_marker(pool, project_id).await?;
+
+    Ok(markers
+        .into_iter()
+        .filter(|marker| {
+            marker_matches_search(marker, &keyword, &category_names, &tag_names_by_marker)
+        })
+        .collect())
 }
 
 pub async fn insert_marker(
@@ -289,6 +330,98 @@ async fn load_marker_tag_ids(pool: &SqlitePool, marker_id: &str) -> Result<Vec<S
     .fetch_all(pool)
     .await
     .map_err(AppError::from)
+}
+
+async fn load_category_names(
+    pool: &SqlitePool,
+    project_id: &str,
+) -> Result<HashMap<String, String>, AppError> {
+    let rows = sqlx::query(
+        "SELECT id, name
+         FROM categories
+         WHERE project_id = ?
+           AND deleted_at IS NULL",
+    )
+    .bind(project_id)
+    .fetch_all(pool)
+    .await
+    .map_err(AppError::from)?;
+
+    let mut category_names = HashMap::new();
+    for row in rows {
+        category_names.insert(
+            row.try_get::<String, _>("id").map_err(AppError::from)?,
+            row.try_get::<String, _>("name").map_err(AppError::from)?,
+        );
+    }
+
+    Ok(category_names)
+}
+
+async fn load_tag_names_by_marker(
+    pool: &SqlitePool,
+    project_id: &str,
+) -> Result<HashMap<String, Vec<String>>, AppError> {
+    let rows = sqlx::query(
+        "SELECT marker_tags.marker_id AS marker_id, tags.name AS tag_name
+         FROM marker_tags
+         INNER JOIN markers ON markers.id = marker_tags.marker_id
+         INNER JOIN tags ON tags.id = marker_tags.tag_id
+         WHERE markers.project_id = ?
+           AND markers.deleted_at IS NULL
+           AND marker_tags.deleted_at IS NULL
+           AND tags.deleted_at IS NULL",
+    )
+    .bind(project_id)
+    .fetch_all(pool)
+    .await
+    .map_err(AppError::from)?;
+
+    let mut tag_names_by_marker: HashMap<String, Vec<String>> = HashMap::new();
+    for row in rows {
+        tag_names_by_marker
+            .entry(
+                row.try_get::<String, _>("marker_id")
+                    .map_err(AppError::from)?,
+            )
+            .or_default()
+            .push(
+                row.try_get::<String, _>("tag_name")
+                    .map_err(AppError::from)?,
+            );
+    }
+
+    Ok(tag_names_by_marker)
+}
+
+fn marker_matches_search(
+    marker: &MarkerRecord,
+    keyword: &str,
+    category_names: &HashMap<String, String>,
+    tag_names_by_marker: &HashMap<String, Vec<String>>,
+) -> bool {
+    let category_name = marker
+        .category_id
+        .as_ref()
+        .and_then(|category_id| category_names.get(category_id));
+    let tag_names = tag_names_by_marker.get(&marker.id);
+
+    marker_text_matches(&marker.name, keyword)
+        || marker
+            .address
+            .as_deref()
+            .is_some_and(|address| marker_text_matches(address, keyword))
+        || category_name.is_some_and(|name| marker_text_matches(name, keyword))
+        || tag_names
+            .is_some_and(|names| names.iter().any(|name| marker_text_matches(name, keyword)))
+}
+
+fn marker_text_matches(value: &str, keyword: &str) -> bool {
+    normalize_search_text(value).contains(keyword)
+}
+
+fn normalize_search_text(value: &str) -> String {
+    value.trim().to_lowercase()
 }
 
 async fn validate_optional_category(
@@ -564,6 +697,82 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn searches_marker_name_address_category_and_tags() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        insert_project_row(&pool, "project-1").await;
+        insert_category_row(&pool, "category-1", "project-1").await;
+        insert_tag_row(&pool, "tag-1", "project-1").await;
+
+        let name_marker = insert_marker(&pool, new_create_request("客户总部", Some("category-1")))
+            .await
+            .expect("name marker should be created");
+        let mut address_request = new_create_request("普通点位", None);
+        address_request.address = Some("杭州市西湖区".to_string());
+        let address_marker = insert_marker(&pool, address_request)
+            .await
+            .expect("address marker should be created");
+        let tag_marker = insert_marker(&pool, new_create_request("待跟进点位", None))
+            .await
+            .expect("tag marker should be created");
+
+        save_marker(
+            &pool,
+            UpdateMarkerRequest {
+                project_id: "project-1".to_string(),
+                marker_id: tag_marker.id.clone(),
+                name: tag_marker.name.clone(),
+                lng: tag_marker.lng,
+                lat: tag_marker.lat,
+                address: tag_marker.address.clone(),
+                category_id: tag_marker.category_id.clone(),
+                tag_ids: Some(vec!["tag-1".to_string()]),
+                note: tag_marker.note.clone(),
+                source: Some(tag_marker.source.clone()),
+            },
+        )
+        .await
+        .expect("marker tag should be saved");
+
+        assert_eq!(
+            search_marker_ids(&pool, "总部").await,
+            vec![name_marker.id.clone()]
+        );
+        assert_eq!(
+            search_marker_ids(&pool, "西湖").await,
+            vec![address_marker.id.clone()]
+        );
+        assert_eq!(
+            search_marker_ids(&pool, "分类-category-1").await,
+            vec![name_marker.id]
+        );
+        assert_eq!(
+            search_marker_ids(&pool, "标签-tag-1").await,
+            vec![tag_marker.id]
+        );
+    }
+
+    #[tokio::test]
+    async fn search_excludes_soft_deleted_markers() {
+        let (_temp_dir, pool) = create_test_pool().await;
+        insert_project_row(&pool, "project-1").await;
+        let deleted_marker = insert_marker(&pool, new_create_request("搜索目标", None))
+            .await
+            .expect("deleted marker should be created");
+        let active_marker = insert_marker(&pool, new_create_request("搜索目标", None))
+            .await
+            .expect("active marker should be created");
+
+        delete_marker(&pool, "project-1", &deleted_marker.id)
+            .await
+            .expect("marker should soft delete");
+
+        assert_eq!(
+            search_marker_ids(&pool, "搜索目标").await,
+            vec![active_marker.id]
+        );
+    }
+
+    #[tokio::test]
     async fn rejects_invalid_marker_coordinate() {
         let (_temp_dir, pool) = create_test_pool().await;
         insert_project_row(&pool, "project-1").await;
@@ -649,5 +858,14 @@ mod tests {
         .execute(pool)
         .await
         .expect("insert tag");
+    }
+
+    async fn search_marker_ids(pool: &SqlitePool, keyword: &str) -> Vec<String> {
+        search_markers(pool, "project-1", keyword)
+            .await
+            .expect("search should succeed")
+            .into_iter()
+            .map(|marker| marker.id)
+            .collect()
     }
 }

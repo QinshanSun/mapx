@@ -106,6 +106,7 @@ pub fn run() {
             projects::update_project_map_layer,
             markers::create_marker,
             markers::list_project_markers,
+            markers::search_project_markers,
             markers::soft_delete_marker,
             markers::update_marker,
             tags::create_tag,
