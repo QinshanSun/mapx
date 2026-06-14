@@ -50,6 +50,16 @@ describe("workspace store", () => {
     expect(store.getState().activePanel).toBe("settings");
   });
 
+  it("clears marker selection without leaving the current workspace panel", () => {
+    const store = createTestStore();
+
+    store.getState().dispatchAction("search.focus", "button");
+    store.getState().selectMarker(null);
+
+    expect(store.getState().selectedMarkerId).toBeNull();
+    expect(store.getState().activePanel).toBe("search");
+  });
+
   it("routes shortcut actions through a single dispatcher", () => {
     const store = createTestStore();
 

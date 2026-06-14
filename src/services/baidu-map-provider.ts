@@ -1,5 +1,5 @@
 import { loadBaiduMapScript, type BaiduMapLoadResult } from "@/services/baidu-map-loader";
-import type { MapCoordinate, MapMarkerItem, MapProvider, MapViewState } from "@/services/map-provider";
+import type { MapCoordinate, MapMarkerItem, MapPoiPreview, MapProvider, MapViewState } from "@/services/map-provider";
 import type { MapLayer } from "@/types/project";
 
 interface BaiduPoint {
@@ -65,6 +65,8 @@ export class BaiduMapProvider implements MapProvider {
   private markerClickHandler: ((markerId: string) => void) | null = null;
   private markerItems: MapMarkerItem[] = [];
   private markerOverlays: BaiduMarkerInstance[] = [];
+  private poiPreview: MapPoiPreview | null = null;
+  private poiPreviewOverlay: BaiduMarkerInstance | null = null;
   private selectedMarkerId: string | null = null;
 
   constructor(
@@ -105,11 +107,13 @@ export class BaiduMapProvider implements MapProvider {
     this.setView(view);
     this.setLayer(this.layer);
     this.renderMarkers();
+    this.renderPoiPreview();
   }
 
   destroy() {
     this.isDestroyed = true;
     this.clearMarkers();
+    this.clearPoiPreviewOverlay();
     this.map?.destroy?.();
     this.map = null;
 
@@ -176,6 +180,11 @@ export class BaiduMapProvider implements MapProvider {
     this.renderMarkers();
   }
 
+  setPoiPreview(preview: MapPoiPreview | null) {
+    this.poiPreview = preview;
+    this.renderPoiPreview();
+  }
+
   setMarkerClickHandler(handler: ((markerId: string) => void) | null) {
     this.markerClickHandler = handler;
   }
@@ -230,6 +239,42 @@ export class BaiduMapProvider implements MapProvider {
     this.markerOverlays = [];
   }
 
+  private renderPoiPreview() {
+    if (!this.map) {
+      return;
+    }
+
+    const runtime = this.getRuntime();
+    if (!runtime) {
+      return;
+    }
+
+    this.clearPoiPreviewOverlay();
+
+    if (!this.poiPreview) {
+      return;
+    }
+
+    const point = new runtime.api.Point(this.poiPreview.lng, this.poiPreview.lat);
+    const marker = new runtime.api.Marker(point, {
+      icon: this.getPoiPreviewIcon(runtime.api),
+    });
+
+    marker.setTitle?.(this.poiPreview.name);
+    marker.setZIndex?.(30);
+    this.map.addOverlay(marker);
+    this.map.centerAndZoom(point, Math.max(this.map.getZoom(), 15));
+    this.poiPreviewOverlay = marker;
+  }
+
+  private clearPoiPreviewOverlay() {
+    if (this.map && this.poiPreviewOverlay) {
+      this.map.removeOverlay(this.poiPreviewOverlay);
+    }
+
+    this.poiPreviewOverlay = null;
+  }
+
   private getMarkerIcon(api: BaiduMapGlobal, markerItem: MapMarkerItem, isSelected: boolean) {
     const cacheKey = `${markerItem.color}:${markerItem.icon}:${isSelected ? "selected" : "default"}`;
     const cachedIcon = this.iconCache.get(cacheKey);
@@ -243,6 +288,24 @@ export class BaiduMapProvider implements MapProvider {
     const size = new api.Size(width, height);
     const icon = new api.Icon(buildMarkerIconDataUrl(markerItem.color, markerItem.icon, isSelected), size, {
       anchor: new api.Size(width / 2, height),
+      imageSize: size,
+    });
+
+    this.iconCache.set(cacheKey, icon);
+    return icon;
+  }
+
+  private getPoiPreviewIcon(api: BaiduMapGlobal) {
+    const cacheKey = "poi-preview";
+    const cachedIcon = this.iconCache.get(cacheKey);
+
+    if (cachedIcon) {
+      return cachedIcon;
+    }
+
+    const size = new api.Size(34, 42);
+    const icon = new api.Icon(buildPoiPreviewIconDataUrl(), size, {
+      anchor: new api.Size(17, 42),
       imageSize: size,
     });
 
@@ -299,6 +362,12 @@ function buildMarkerIconDataUrl(color: string, iconName: string, isSelected: boo
   const scale = isSelected ? 1.16 : 1;
   const stroke = isSelected ? `<path d="M15 35C10 28 4 23 4 14a11 11 0 1 1 22 0c0 9-6 14-11 21Z" fill="none" stroke="#0f172a" stroke-width="2" transform="translate(3 3) scale(${scale})"/>` : "";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${stroke}<path d="M15 35C10 28 4 23 4 14a11 11 0 1 1 22 0c0 9-6 14-11 21Z" fill="${escapeSvgAttribute(color)}" transform="translate(${isSelected ? 3 : 0} ${isSelected ? 3 : 0}) scale(${scale})"/><circle cx="${width / 2}" cy="${isSelected ? 19 : 14}" r="8" fill="white" fill-opacity="0.92"/><text x="${width / 2}" y="${isSelected ? 22 : 17}" text-anchor="middle" font-family="Arial,sans-serif" font-size="8" font-weight="700" fill="${escapeSvgAttribute(color)}">${escapeSvgText(label)}</text></svg>`;
+
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+function buildPoiPreviewIconDataUrl() {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="34" height="42" viewBox="0 0 34 42"><path d="M17 40C11 31 5 25 5 16a12 12 0 1 1 24 0c0 9-6 15-12 24Z" fill="#0f766e" stroke="#ffffff" stroke-width="2"/><circle cx="17" cy="16" r="7" fill="#ffffff" fill-opacity="0.95"/><text x="17" y="19" text-anchor="middle" font-family="Arial,sans-serif" font-size="7" font-weight="700" fill="#0f766e">POI</text></svg>`;
 
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }

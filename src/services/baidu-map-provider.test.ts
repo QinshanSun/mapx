@@ -185,6 +185,48 @@ describe("baidu map provider", () => {
     expect(fake.icons.some((icon) => icon.url.includes(encodeURIComponent("#0f172a")))).toBe(true);
   });
 
+  it("renders, replaces, and clears a temporary Baidu POI preview overlay", async () => {
+    const fake = createFakeApi();
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+    provider.setPoiPreview({
+      id: "poi-1",
+      name: "人民广场",
+      lng: 121.475,
+      lat: 31.234,
+      address: "上海市黄浦区人民大道",
+      city: "上海",
+      source: "baidu",
+    });
+
+    expect(fake.instances[0].addOverlay).toHaveBeenCalledTimes(1);
+    expect(fake.markers[0].point).toEqual({ lng: 121.475, lat: 31.234 });
+    expect(fake.markers[0].setTitle).toHaveBeenCalledWith("人民广场");
+    expect(fake.instances[0].centerAndZoom).toHaveBeenLastCalledWith({ lng: 121.475, lat: 31.234 }, 15);
+
+    provider.setPoiPreview({
+      id: "poi-2",
+      name: "上海站",
+      lng: 121.455,
+      lat: 31.249,
+      address: "上海市静安区秣陵路",
+      city: "上海",
+      source: "baidu",
+    });
+
+    expect(fake.instances[0].removeOverlay).toHaveBeenCalledTimes(1);
+    expect(fake.instances[0].addOverlay).toHaveBeenCalledTimes(2);
+    expect(fake.markers[1].point).toEqual({ lng: 121.455, lat: 31.249 });
+
+    provider.setPoiPreview(null);
+
+    expect(fake.instances[0].removeOverlay).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps one thousand marker rendering inside the provider boundary", async () => {
     const fake = createFakeApi();
     const provider = new BaiduMapProvider("test-ak", {

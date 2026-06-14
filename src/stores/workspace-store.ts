@@ -52,7 +52,11 @@ export const createWorkspaceState: StateCreator<WorkspaceState> = (set) => ({
       return nextState;
     }),
   setActivePanel: (activePanel) => set({ activePanel }),
-  selectMarker: (selectedMarkerId) => set({ selectedMarkerId, activePanel: "markers" }),
+  selectMarker: (selectedMarkerId) =>
+    set((state) => ({
+      selectedMarkerId,
+      activePanel: selectedMarkerId ? "markers" : state.activePanel,
+    })),
 });
 
 export const useWorkspaceStore = create<WorkspaceState>(createWorkspaceState);

@@ -1,4 +1,4 @@
-import { AlertCircle, Building2, Globe2, Loader2, MapPin, Search } from "lucide-react";
+import { AlertCircle, Building2, Globe2, Loader2, MapPin, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -22,8 +22,11 @@ interface SearchPanelProps {
   searchCity: string;
   mapAvailability: MapCanvasAvailability;
   selectedMarkerId: string | null;
+  selectedPoiId: string | null;
   onSearchCityChange: (city: string) => Promise<void>;
   onSelectMarker: (marker: MarkerRecord) => void;
+  onPreviewPoi: (poi: BaiduPoiResult) => void;
+  onCancelPoiPreview: () => void;
   onError: (error: unknown) => void;
 }
 
@@ -42,8 +45,11 @@ export function SearchPanel({
   searchCity,
   mapAvailability,
   selectedMarkerId,
+  selectedPoiId,
   onSearchCityChange,
   onSelectMarker,
+  onPreviewPoi,
+  onCancelPoiPreview,
   onError,
 }: SearchPanelProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -149,10 +155,12 @@ export function SearchPanel({
   function handleKeywordChange(nextKeyword: string) {
     setKeyword(nextKeyword);
     setIsNationalScope(false);
+    onCancelPoiPreview();
   }
 
   function handleSearchCityChange(nextCity: string) {
     setIsNationalScope(false);
+    onCancelPoiPreview();
     setIsCitySaving(true);
     onSearchCityChange(nextCity)
       .catch(() => undefined)
@@ -161,6 +169,7 @@ export function SearchPanel({
 
   function expandToNationalSearch() {
     setIsNationalScope(true);
+    onCancelPoiPreview();
   }
 
   return (
@@ -259,12 +268,17 @@ export function SearchPanel({
             <section className="mt-5 border-t border-border pt-4">
               <div className="mb-3 flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <h4 className="text-sm font-semibold">百度 POI</h4>
+                  <h4 className="text-sm font-semibold">百度地点</h4>
                   <p className="mt-1 truncate text-xs text-muted-foreground">
                     {poiScope.type === "city" ? searchCity : "全国"}
                   </p>
                 </div>
-                {poiScope.type === "city" ? (
+                {selectedPoiId ? (
+                  <Button type="button" size="sm" variant="ghost" onClick={onCancelPoiPreview}>
+                    <X />
+                    取消预览
+                  </Button>
+                ) : poiScope.type === "city" ? (
                   <Button
                     type="button"
                     size="sm"
@@ -285,22 +299,39 @@ export function SearchPanel({
               {poiStatus === "success" && poiResults.length === 0 ? <SearchNotice icon="empty" message="当前范围没有匹配的百度 POI。" /> : null}
 
               <div className="space-y-2">
-                {poiResults.map((poi) => (
-                  <article key={poi.id} className="rounded-md border border-border bg-white p-3 text-sm">
-                    <span className="flex items-center gap-2 font-medium">
-                      <Building2 className="size-4 text-primary" />
-                      <span className="min-w-0 truncate">{poi.name}</span>
-                    </span>
-                    <span className="mt-1 block truncate text-xs text-muted-foreground">
-                      {poi.city ?? "未知城市"} · {poi.address ?? "无地址"}
-                    </span>
-                    {poi.lng !== null && poi.lat !== null ? (
-                      <span className="mt-2 block text-xs text-muted-foreground">
-                        {poi.lng.toFixed(5)}, {poi.lat.toFixed(5)}
+                {poiResults.map((poi) => {
+                  const coordinate = poi.lng !== null && poi.lat !== null ? { lng: poi.lng, lat: poi.lat } : null;
+                  const isPreviewed = poi.id === selectedPoiId;
+
+                  return (
+                    <button
+                      key={poi.id}
+                      type="button"
+                      className={`w-full rounded-md border p-3 text-left text-sm transition ${
+                        isPreviewed
+                          ? "border-primary/40 bg-primary/5 text-primary"
+                          : "border-border bg-white hover:border-primary/40 hover:bg-accent"
+                      } disabled:cursor-not-allowed disabled:opacity-60`}
+                      disabled={!coordinate}
+                      onClick={() => onPreviewPoi(poi)}
+                    >
+                      <span className="flex items-center gap-2 font-medium">
+                        <Building2 className="size-4 text-primary" />
+                        <span className="min-w-0 truncate">{poi.name}</span>
                       </span>
-                    ) : null}
-                  </article>
-                ))}
+                      <span className="mt-1 block truncate text-xs text-muted-foreground">
+                        {poi.city ?? "未知城市"} · {poi.address ?? "无地址"}
+                      </span>
+                      {coordinate ? (
+                        <span className="mt-2 block text-xs text-muted-foreground">
+                          {coordinate.lng.toFixed(5)}, {coordinate.lat.toFixed(5)}
+                        </span>
+                      ) : (
+                        <span className="mt-2 block text-xs text-muted-foreground">暂无坐标，不能预览</span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </section>
           </section>

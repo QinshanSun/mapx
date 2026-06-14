@@ -22,6 +22,16 @@ export interface MapCoordinate {
   lat: number;
 }
 
+export interface MapPoiPreview {
+  id: string;
+  name: string;
+  lng: number;
+  lat: number;
+  address: string | null;
+  city: string | null;
+  source: "baidu";
+}
+
 export interface MapProvider {
   init(container: HTMLElement, view: MapViewState): Promise<void>;
   destroy(): void;
@@ -31,6 +41,7 @@ export interface MapProvider {
   getLayer(): MapLayer;
   setMarkers(markers: MapMarkerItem[]): void;
   setSelectedMarker(markerId: string | null): void;
+  setPoiPreview(preview: MapPoiPreview | null): void;
   setMarkerClickHandler(handler: ((markerId: string) => void) | null): void;
   setMapClickHandler(handler: ((coordinate: MapCoordinate) => void) | null): void;
 }

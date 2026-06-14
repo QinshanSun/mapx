@@ -1,4 +1,5 @@
 import {
+  Building2,
   CircleHelp,
   FolderOpen,
   Check,
@@ -35,9 +36,11 @@ import {
   createPendingMarkerFromMapClick,
   type PendingMarkerCreation,
 } from "@/services/marker-creation";
+import type { BaiduPoiResult } from "@/services/baidu-poi-search-provider";
 import type { MarkerListFilters } from "@/services/marker-list";
 import { buildMapMarkerItems, findMarkerById } from "@/services/map-marker-render";
-import type { MapCoordinate, MapMarkerItem } from "@/services/map-provider";
+import type { MapCoordinate, MapMarkerItem, MapPoiPreview } from "@/services/map-provider";
+import { cancelPoiPreview, replacePoiPreview } from "@/services/poi-preview";
 import {
   createProject,
   getProjectWorkspace,
@@ -114,6 +117,7 @@ function App() {
   });
   const [markerListRefreshKey, setMarkerListRefreshKey] = useState(0);
   const [mapAvailability, setMapAvailability] = useState<MapCanvasAvailability>("loading");
+  const [poiPreview, setPoiPreview] = useState<MapPoiPreview | null>(null);
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | null>(null);
   const [isProjectSaving, setIsProjectSaving] = useState(false);
   const [isProjectRenaming, setIsProjectRenaming] = useState(false);
@@ -272,11 +276,33 @@ function App() {
 
   const selectMarkerRecord = useCallback(
     (marker: MarkerRecord) => {
+      setPoiPreview(cancelPoiPreview());
       selectMarker(marker.id);
       setSelectedMarkerRecord(marker);
     },
     [selectMarker],
   );
+
+  const handlePreviewPoi = useCallback(
+    (poi: BaiduPoiResult) => {
+      const nextPreview = replacePoiPreview(poiPreview, poi);
+
+      if (!nextPreview) {
+        setProjectActionError("该百度地点没有可用坐标，暂不能预览。");
+        return;
+      }
+
+      setPoiPreview(nextPreview);
+      setSelectedMarkerRecord(null);
+      selectMarker(null);
+      setProjectActionError(null);
+    },
+    [poiPreview, selectMarker],
+  );
+
+  const handleCancelPoiPreview = useCallback(() => {
+    setPoiPreview(cancelPoiPreview());
+  }, []);
 
   const clearPendingMarker = useCallback(() => {
     setPendingMarker(null);
@@ -345,6 +371,7 @@ function App() {
   useEffect(() => {
     setFilteredMarkerRecords([]);
     setMarkerCategories([]);
+    setPoiPreview(cancelPoiPreview());
     clearPendingMarker();
   }, [clearPendingMarker, projectWorkspace?.currentProject.id]);
 
@@ -959,6 +986,7 @@ function App() {
                 searchCity={projectWorkspace.settings.searchCity}
                 mapAvailability={mapAvailability}
                 selectedMarkerId={selectedMarkerId}
+                selectedPoiId={poiPreview?.id ?? null}
                 onSearchCityChange={handleSearchCityChange}
                 onSelectMarker={(marker) => {
                   runWithMarkerDirtyGuard({
@@ -966,6 +994,8 @@ function App() {
                     run: () => selectMarkerRecord(marker),
                   });
                 }}
+                onPreviewPoi={handlePreviewPoi}
+                onCancelPoiPreview={handleCancelPoiPreview}
                 onError={(error) => setProjectActionError(getBackendErrorMessage(error))}
               />
             ) : null}
@@ -975,6 +1005,7 @@ function App() {
                 baiduAk={firstLaunchSettings.baiduAk}
                 settings={projectWorkspace.settings}
                 markers={mapMarkers}
+                poiPreview={poiPreview}
                 selectedMarkerId={pendingMarker?.id ?? selectedMarkerId}
                 isMarkerCreationMode={isMarkerCreationMode}
                 pendingMarkerCoordinate={pendingMarker ? { lng: pendingMarker.lng, lat: pendingMarker.lat } : null}
@@ -1029,6 +1060,37 @@ function App() {
             />
           ) : activePanel === "search" ? (
             <div className="space-y-4 p-5">
+              {poiPreview ? (
+                <section className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm leading-6">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs text-muted-foreground">百度地点预览</p>
+                      <h3 className="truncate text-sm font-semibold text-foreground">{poiPreview.name}</h3>
+                    </div>
+                    <Building2 className="size-4 shrink-0 text-primary" />
+                  </div>
+                  <dl className="space-y-2 text-muted-foreground">
+                    <div>
+                      <dt className="text-xs font-medium text-foreground">城市</dt>
+                      <dd>{poiPreview.city ?? "未知城市"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-medium text-foreground">地址</dt>
+                      <dd>{poiPreview.address ?? "无地址"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-medium text-foreground">坐标</dt>
+                      <dd>
+                        {poiPreview.lng.toFixed(5)}, {poiPreview.lat.toFixed(5)}
+                      </dd>
+                    </div>
+                  </dl>
+                  <Button type="button" size="sm" variant="outline" className="mt-4" onClick={handleCancelPoiPreview}>
+                    <X />
+                    取消预览
+                  </Button>
+                </section>
+              ) : null}
               <section className="rounded-lg border border-border p-4 text-sm leading-6 text-muted-foreground">
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-foreground">我的点位</h3>

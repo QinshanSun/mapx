@@ -4,7 +4,7 @@ import { Crosshair, FolderOpen, MapPin, Plus, RotateCcw, Settings, X } from "luc
 import { Button } from "@/components/ui/button";
 import { createBaiduMapProvider } from "@/services/baidu-map-provider";
 import { resolveMapCanvasOverlay, type MapCanvasActionId } from "@/services/map-canvas-state";
-import type { MapCoordinate, MapMarkerItem, MapProvider } from "@/services/map-provider";
+import type { MapCoordinate, MapMarkerItem, MapPoiPreview, MapProvider } from "@/services/map-provider";
 import type { ProjectMapSettings } from "@/types/project";
 
 interface MapLoadResult {
@@ -19,6 +19,7 @@ interface MapCanvasProps {
   baiduAk: string | null;
   settings: ProjectMapSettings;
   markers: MapMarkerItem[];
+  poiPreview: MapPoiPreview | null;
   selectedMarkerId: string | null;
   isMarkerCreationMode: boolean;
   pendingMarkerCoordinate: MapCoordinate | null;
@@ -36,6 +37,7 @@ export function MapCanvas({
   baiduAk,
   settings,
   markers,
+  poiPreview,
   selectedMarkerId,
   isMarkerCreationMode,
   pendingMarkerCoordinate,
@@ -142,6 +144,10 @@ export function MapCanvas({
   useEffect(() => {
     providerRef.current?.setSelectedMarker(selectedMarkerId);
   }, [selectedMarkerId]);
+
+  useEffect(() => {
+    providerRef.current?.setPoiPreview(poiPreview);
+  }, [poiPreview]);
 
   useEffect(() => {
     providerRef.current?.setMarkerClickHandler(onSelectMarker);
