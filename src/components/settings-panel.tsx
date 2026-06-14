@@ -1,6 +1,7 @@
 import { Check, FolderOpen, Info, KeyRound, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { CategoryManagementPanel } from "@/components/category-management-panel";
 import { TagManagementPanel } from "@/components/tag-management-panel";
 import { Button } from "@/components/ui/button";
 import { CHINA_CITIES, normalizeCityName } from "@/data/china-cities";
@@ -178,6 +179,8 @@ export function SettingsPanel({ settings, currentProjectId, onChange, onError }:
           </Button>
         </div>
       </section>
+
+      <CategoryManagementPanel projectId={currentProjectId} onError={onError} />
 
       <TagManagementPanel projectId={currentProjectId} onError={onError} />
 

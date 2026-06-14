@@ -1,5 +1,6 @@
 import { isTauri } from "@tauri-apps/api/core";
 
+import type { CategorySaveInput } from "@/services/category-form";
 import { callCommand } from "@/services/tauri-client";
 import type { CategoryRecord } from "@/types/category";
 
@@ -21,16 +22,42 @@ export function listProjectCategories(projectId: string) {
   return callCommand<CategoryRecord[]>("list_project_categories", { request: { projectId } });
 }
 
+export function createCategory(projectId: string, input: CategorySaveInput) {
+  if (!isTauri()) {
+    return Promise.resolve(
+      buildPreviewCategory(
+        `preview-category-${input.name}`,
+        input.name,
+        input.color,
+        input.icon,
+        PREVIEW_CATEGORIES.length * 10 + 10,
+        projectId,
+      ),
+    );
+  }
+
+  return callCommand<CategoryRecord>("create_category", { request: { projectId, ...input } });
+}
+
+export function updateCategory(projectId: string, categoryId: string, input: CategorySaveInput) {
+  if (!isTauri()) {
+    return Promise.resolve(buildPreviewCategory(categoryId, input.name, input.color, input.icon, 10, projectId));
+  }
+
+  return callCommand<CategoryRecord>("update_category", { request: { projectId, categoryId, ...input } });
+}
+
 function buildPreviewCategory(
   id: string,
   name: string,
   color: string,
   icon: string,
   sortOrder: number,
+  projectId = "preview-project",
 ): CategoryRecord {
   return {
     id,
-    projectId: "preview-project",
+    projectId,
     name,
     color,
     icon,

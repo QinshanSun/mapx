@@ -11,7 +11,7 @@ See the V1 product and technical specification:
 
 ## Current Status
 
-The repository has the initial M1 foundation, the local data core through `DATA-004`, settings work through `SET-003`, project workspace work through `PROJ-002`, taxonomy defaults through `TAX-001`, tag management through `TAX-004`, and marker management through `MRK-004`.
+The repository has the initial M1 foundation, the local data core through `DATA-004`, settings work through `SET-003`, project workspace work through `PROJ-002`, taxonomy defaults and category management through `TAX-002`, tag management through `TAX-004`, and marker management through `MRK-004`.
 
 Implemented foundation:
 
@@ -34,6 +34,7 @@ Implemented foundation:
 - Default project auto-creation for `我的项目` with city-based search city, map center, zoom, and `normal` map layer
 - Current project workspace loading, project switcher, and project creation flow
 - Default categories for new projects: `客户`、`门店`、`仓库`、`竞品`、`候选点`
+- Project category list/create/edit commands and settings-page category management UI
 - Project tag list/create/rename/soft delete commands and settings-page tag management UI
 - Marker create/list/update/soft delete backend commands with BD-09 coordinate validation
 - Frontend marker list with category/tag filters, fixed sorting, and virtual scrolling
@@ -61,9 +62,9 @@ Note: the full default `npm run tauri:build` currently builds the release binary
 
 Work should continue from the M2 Local Workspace milestone in [docs/features-v1.md](docs/features-v1.md):
 
-1. `TAX-002`: build category management UI and commands.
-2. `MRK-005`: add project overview empty state.
-3. `PROJ-003`: support project rename.
+1. `MRK-005`: add project overview empty state.
+2. `PROJ-003`: support project rename.
+3. `TAX-003`: implement category soft delete and uncategorize markers.
 
 ## Development
 

@@ -108,7 +108,9 @@ pub fn run() {
             tags::list_project_tags,
             tags::soft_delete_tag,
             tags::update_tag,
+            taxonomy::create_category,
             taxonomy::list_project_categories,
+            taxonomy::update_category,
             health_check,
             get_bootstrap_status,
             structured_error_example
