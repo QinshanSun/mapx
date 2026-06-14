@@ -7,6 +7,57 @@ const DEFAULT_CITY: &str = "上海";
 const KEY_FIRST_LAUNCH_COMPLETED: &str = "first_launch_completed";
 const KEY_DEFAULT_CITY: &str = "default_city";
 const KEY_BAIDU_AK: &str = "baidu_ak";
+const SUPPORTED_CITY_NAMES: &[&str] = &[
+    "上海",
+    "北京",
+    "深圳",
+    "广州",
+    "杭州",
+    "成都",
+    "重庆",
+    "武汉",
+    "南京",
+    "西安",
+    "苏州",
+    "天津",
+    "青岛",
+    "宁波",
+    "厦门",
+    "福州",
+    "长沙",
+    "郑州",
+    "济南",
+    "合肥",
+    "昆明",
+    "南宁",
+    "贵阳",
+    "南昌",
+    "太原",
+    "石家庄",
+    "沈阳",
+    "大连",
+    "长春",
+    "哈尔滨",
+    "呼和浩特",
+    "兰州",
+    "西宁",
+    "银川",
+    "乌鲁木齐",
+    "海口",
+    "三亚",
+    "拉萨",
+    "无锡",
+    "佛山",
+    "东莞",
+    "珠海",
+    "惠州",
+    "中山",
+    "温州",
+    "泉州",
+    "烟台",
+    "洛阳",
+    "南通",
+];
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -21,6 +72,12 @@ pub struct FirstLaunchSettings {
 pub struct CompleteFirstLaunchRequest {
     pub default_city: String,
     pub baidu_ak: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDefaultCityRequest {
+    pub default_city: String,
 }
 
 #[tauri::command]
@@ -40,6 +97,19 @@ pub async fn complete_first_launch(
     let pool = require_pool(&state)?;
 
     save_first_launch_settings(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn update_default_city(
+    state: tauri::State<'_, AppRuntimeState>,
+    request: UpdateDefaultCityRequest,
+) -> Result<FirstLaunchSettings, AppError> {
+    let pool = require_pool(&state)?;
+    let default_city = validate_default_city(&request.default_city)?;
+
+    upsert_app_setting(&pool, KEY_DEFAULT_CITY, Some(default_city.as_str())).await?;
+
+    load_first_launch_settings(&pool).await
 }
 
 async fn save_first_launch_settings(
@@ -139,6 +209,10 @@ fn validate_default_city(default_city: &str) -> Result<String, AppError> {
         return Err(AppError::validation("默认城市不能为空。"));
     }
 
+    if !SUPPORTED_CITY_NAMES.contains(&trimmed) {
+        return Err(AppError::validation("默认城市不在支持列表中。"));
+    }
+
     Ok(trimmed.to_string())
 }
 
@@ -197,6 +271,13 @@ mod tests {
         let error = validate_default_city("  ").expect_err("empty city should fail");
 
         assert_eq!(error.message, "默认城市不能为空。");
+    }
+
+    #[test]
+    fn default_city_must_be_supported() {
+        let error = validate_default_city("浦东新区").expect_err("unsupported city should fail");
+
+        assert_eq!(error.message, "默认城市不在支持列表中。");
     }
 
     async fn create_test_pool() -> (tempfile::TempDir, SqlitePool) {

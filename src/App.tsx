@@ -10,6 +10,7 @@ import {
 import { useEffect, useState } from "react";
 
 import { FirstLaunchFlow } from "@/components/first-launch-flow";
+import { SettingsPanel } from "@/components/settings-panel";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceActionEvents } from "@/hooks/use-workspace-action-events";
 import { getBackendErrorMessage } from "@/services/backend-error";
@@ -236,71 +237,79 @@ function App() {
             <h2 className="mt-1 text-base font-semibold">{detailTitle}</h2>
           </header>
 
-          <div className="space-y-4 p-5">
-            <section className="rounded-lg border border-border p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-sm font-semibold">快速操作</h3>
-                <Star className="size-4 text-amber-500" />
-              </div>
-              <div className="grid gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="justify-start"
-                  onClick={() => dispatchAction("view.settings", "button")}
-                >
-                  <Settings />
-                  打开设置
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="justify-start"
-                  onClick={() => dispatchAction("help.about", "button")}
-                >
-                  <CircleHelp />
-                  关于 MapX
-                </Button>
-              </div>
-            </section>
-
-            <section className="rounded-lg border border-border bg-slate-50 p-4 text-sm leading-6">
-              <h3 className="mb-2 font-semibold">最近动作</h3>
-              {lastActionNotice ? (
-                <div>
-                  <p className="font-medium">{lastActionNotice.label}</p>
-                  <p className="text-muted-foreground">{lastActionNotice.message}</p>
-                  <p className="mt-2 text-xs text-muted-foreground">来源：{lastActionNotice.source}</p>
+          {activePanel === "settings" ? (
+            <SettingsPanel
+              settings={firstLaunchSettings}
+              onChange={setFirstLaunchSettings}
+              onError={(error) => setFirstLaunchError(getBackendErrorMessage(error))}
+            />
+          ) : (
+            <div className="space-y-4 p-5">
+              <section className="rounded-lg border border-border p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold">快速操作</h3>
+                  <Star className="size-4 text-amber-500" />
                 </div>
-              ) : (
-                <p className="text-muted-foreground">菜单和快捷键触发后会在这里显示占位状态。</p>
-              )}
-            </section>
-
-            <section className="rounded-lg border border-border p-4">
-              <h3 className="mb-3 text-sm font-semibold">点位预览</h3>
-              <div className="space-y-2">
-                {markerPreviews.map((marker) => (
-                  <button
-                    key={marker.id}
-                    type="button"
-                    className="w-full rounded-md border border-border p-3 text-left text-sm transition hover:border-primary/40 hover:bg-accent"
-                    onClick={() => selectMarker(marker.id)}
+                <div className="grid gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="justify-start"
+                    onClick={() => dispatchAction("view.settings", "button")}
                   >
-                    <span className="font-medium">{marker.name}</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      {marker.categoryName} · {marker.city}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </section>
+                    <Settings />
+                    打开设置
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="justify-start"
+                    onClick={() => dispatchAction("help.about", "button")}
+                  >
+                    <CircleHelp />
+                    关于 MapX
+                  </Button>
+                </div>
+              </section>
 
-            <section className="rounded-lg border border-border p-4 text-sm leading-6">
-              <h3 className="mb-2 font-semibold">{selectedMarker.name}</h3>
-              <p className="text-muted-foreground">{selectedMarker.address}</p>
-            </section>
-          </div>
+              <section className="rounded-lg border border-border bg-slate-50 p-4 text-sm leading-6">
+                <h3 className="mb-2 font-semibold">最近动作</h3>
+                {lastActionNotice ? (
+                  <div>
+                    <p className="font-medium">{lastActionNotice.label}</p>
+                    <p className="text-muted-foreground">{lastActionNotice.message}</p>
+                    <p className="mt-2 text-xs text-muted-foreground">来源：{lastActionNotice.source}</p>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">菜单和快捷键触发后会在这里显示占位状态。</p>
+                )}
+              </section>
+
+              <section className="rounded-lg border border-border p-4">
+                <h3 className="mb-3 text-sm font-semibold">点位预览</h3>
+                <div className="space-y-2">
+                  {markerPreviews.map((marker) => (
+                    <button
+                      key={marker.id}
+                      type="button"
+                      className="w-full rounded-md border border-border p-3 text-left text-sm transition hover:border-primary/40 hover:bg-accent"
+                      onClick={() => selectMarker(marker.id)}
+                    >
+                      <span className="font-medium">{marker.name}</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        {marker.categoryName} · {marker.city}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-border p-4 text-sm leading-6">
+                <h3 className="mb-2 font-semibold">{selectedMarker.name}</h3>
+                <p className="text-muted-foreground">{selectedMarker.address}</p>
+              </section>
+            </div>
+          )}
         </aside>
       </section>
     </main>

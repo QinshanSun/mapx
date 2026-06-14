@@ -1,7 +1,8 @@
 import { KeyRound, MapPinned } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { CHINA_CITIES, normalizeCityName } from "@/data/china-cities";
 import { buildCompleteFirstLaunchInput, completeFirstLaunch } from "@/services/settings-service";
 import type { FirstLaunchSettings } from "@/types/settings";
 
@@ -12,7 +13,8 @@ interface FirstLaunchFlowProps {
 }
 
 export function FirstLaunchFlow({ initialSettings, onComplete, onError }: FirstLaunchFlowProps) {
-  const [defaultCity, setDefaultCity] = useState(initialSettings.defaultCity);
+  const citySelectRef = useRef<HTMLSelectElement>(null);
+  const [defaultCity, setDefaultCity] = useState(normalizeCityName(initialSettings.defaultCity));
   const [baiduAk, setBaiduAk] = useState(initialSettings.baiduAk ?? "");
   const [isSaving, setIsSaving] = useState(false);
 
@@ -20,7 +22,7 @@ export function FirstLaunchFlow({ initialSettings, onComplete, onError }: FirstL
     setIsSaving(true);
     try {
       const settings = await completeFirstLaunch(
-        buildCompleteFirstLaunchInput({ defaultCity, baiduAk }, { skipBaiduAk }),
+        buildCompleteFirstLaunchInput({ defaultCity: citySelectRef.current?.value ?? defaultCity, baiduAk }, { skipBaiduAk }),
       );
       onComplete(settings);
     } catch (error) {
@@ -46,12 +48,20 @@ export function FirstLaunchFlow({ initialSettings, onComplete, onError }: FirstL
         <div className="space-y-5">
           <label className="block text-sm font-medium" htmlFor="default-city">
             默认城市
-            <input
+            <select
+              ref={citySelectRef}
               id="default-city"
               className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-ring"
               value={defaultCity}
+              onInput={(event) => setDefaultCity(event.currentTarget.value)}
               onChange={(event) => setDefaultCity(event.target.value)}
-            />
+            >
+              {CHINA_CITIES.map((city) => (
+                <option key={city.name} value={city.name}>
+                  {city.name}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label className="block text-sm font-medium" htmlFor="baidu-ak">

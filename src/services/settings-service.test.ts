@@ -10,6 +10,13 @@ describe("first launch settings service", () => {
     });
   });
 
+  it("rejects free-form default cities before calling the backend", () => {
+    expect(buildCompleteFirstLaunchInput({ defaultCity: "浦东新区", baiduAk: "" })).toEqual({
+      defaultCity: DEFAULT_CITY,
+      baiduAk: null,
+    });
+  });
+
   it("trims city and Baidu AK before saving", () => {
     expect(buildCompleteFirstLaunchInput({ defaultCity: " 杭州 ", baiduAk: "  test-ak  " })).toEqual({
       defaultCity: "杭州",

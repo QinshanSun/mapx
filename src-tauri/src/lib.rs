@@ -88,6 +88,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             settings::complete_first_launch,
             settings::get_first_launch_settings,
+            settings::update_default_city,
             health_check,
             get_bootstrap_status,
             structured_error_example
