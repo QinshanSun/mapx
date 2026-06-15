@@ -1,4 +1,5 @@
 import { loadBaiduMapScript, type BaiduMapLoadResult } from "@/services/baidu-map-loader";
+import { DEFAULT_LOCATE_ME_ZOOM, DEFAULT_LOCATION_TIMEOUT_MS, getBrowserGeolocationErrorCode } from "@/services/map-location";
 import type { MapCoordinate, MapMarkerItem, MapPoiPreview, MapProvider, MapViewState } from "@/services/map-provider";
 import type { MapLayer } from "@/types/project";
 
@@ -23,6 +24,18 @@ interface BaiduMapClickEvent {
   point?: BaiduPoint;
 }
 
+interface BaiduGeolocationResult {
+  point?: BaiduPoint;
+}
+
+interface BaiduGeolocationInstance {
+  getCurrentPosition: (
+    callback: (result?: BaiduGeolocationResult) => void,
+    options?: { enableHighAccuracy?: boolean; timeout?: number; maximumAge?: number },
+  ) => void;
+  getStatus?: () => number;
+}
+
 interface BaiduIconOptions {
   anchor?: unknown;
   imageSize?: unknown;
@@ -39,6 +52,7 @@ interface BaiduMarkerInstance {
 }
 
 export interface BaiduMapGlobal {
+  Geolocation?: new () => BaiduGeolocationInstance;
   Icon: new (url: string, size: unknown, options?: BaiduIconOptions) => unknown;
   LocalSearch?: unknown;
   Map: new (container: HTMLElement) => BaiduMapInstance;
@@ -49,6 +63,7 @@ export interface BaiduMapGlobal {
 
 export interface BaiduMapRuntime {
   api: BaiduMapGlobal;
+  geolocationSuccessStatus?: number;
   normalMapType?: unknown;
   satelliteMapType?: unknown;
 }
@@ -154,6 +169,25 @@ export class BaiduMapProvider implements MapProvider {
       },
       zoom: this.map.getZoom(),
     };
+  }
+
+  async locateCurrentPosition() {
+    const runtime = this.getRuntime();
+
+    if (!this.map || !runtime) {
+      throw new Error("MAP_LOCATION_UNAVAILABLE");
+    }
+
+    const coordinate = runtime.api.Geolocation
+      ? await this.locateWithBaiduGeolocation(runtime)
+      : await locateWithBrowserGeolocation(DEFAULT_LOCATION_TIMEOUT_MS);
+
+    if (!this.map || this.isDestroyed) {
+      throw new Error("MAP_LOCATION_UNAVAILABLE");
+    }
+
+    this.map.centerAndZoom(new runtime.api.Point(coordinate.lng, coordinate.lat), Math.max(this.map.getZoom(), DEFAULT_LOCATE_ME_ZOOM));
+    return coordinate;
   }
 
   setLayer(layer: MapLayer) {
@@ -338,6 +372,58 @@ export class BaiduMapProvider implements MapProvider {
     this.iconCache.set(cacheKey, icon);
     return icon;
   }
+
+  private locateWithBaiduGeolocation(runtime: BaiduMapRuntime) {
+    const Geolocation = runtime.api.Geolocation;
+
+    if (!Geolocation) {
+      return locateWithBrowserGeolocation(DEFAULT_LOCATION_TIMEOUT_MS);
+    }
+
+    return new Promise<MapCoordinate>((resolve, reject) => {
+      let settled = false;
+      const timeout = globalThis.setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          reject(new Error("MAP_LOCATION_TIMEOUT"));
+        }
+      }, DEFAULT_LOCATION_TIMEOUT_MS);
+
+      const settle = (next: () => void) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        globalThis.clearTimeout(timeout);
+        next();
+      };
+
+      try {
+        const geolocation = new Geolocation();
+        geolocation.getCurrentPosition(
+          (result) => {
+            const status = geolocation.getStatus?.();
+            if (runtime.geolocationSuccessStatus !== undefined && status !== undefined && status !== runtime.geolocationSuccessStatus) {
+              settle(() => reject(new Error("MAP_LOCATION_FAILED")));
+              return;
+            }
+
+            const coordinate = readLocationCoordinate(result?.point);
+            if (!coordinate) {
+              settle(() => reject(new Error("MAP_LOCATION_FAILED")));
+              return;
+            }
+
+            settle(() => resolve(coordinate));
+          },
+          { enableHighAccuracy: true, timeout: DEFAULT_LOCATION_TIMEOUT_MS, maximumAge: 30_000 },
+        );
+      } catch {
+        settle(() => reject(new Error("MAP_LOCATION_FAILED")));
+      }
+    });
+  }
 }
 
 export function createBaiduMapProvider(baiduAk: string) {
@@ -351,6 +437,7 @@ export function readBaiduMapRuntime() {
 
   const runtimeWindow = window as Window & {
     BMapGL?: BaiduMapGlobal;
+    BMAP_STATUS_SUCCESS?: number;
     BMAP_NORMAL_MAP?: unknown;
     BMAP_SATELLITE_MAP?: unknown;
   };
@@ -361,6 +448,7 @@ export function readBaiduMapRuntime() {
 
   return {
     api: runtimeWindow.BMapGL,
+    geolocationSuccessStatus: runtimeWindow.BMAP_STATUS_SUCCESS,
     normalMapType: runtimeWindow.BMAP_NORMAL_MAP,
     satelliteMapType: runtimeWindow.BMAP_SATELLITE_MAP,
   };
@@ -386,6 +474,39 @@ function readClickCoordinate(event: BaiduMapClickEvent | undefined): MapCoordina
 function readMarkerPosition(marker: BaiduMarkerInstance): MapCoordinate | null {
   const point = marker.getPosition?.();
 
+  if (!point || !Number.isFinite(point.lng) || !Number.isFinite(point.lat)) {
+    return null;
+  }
+
+  return {
+    lng: point.lng,
+    lat: point.lat,
+  };
+}
+
+function locateWithBrowserGeolocation(timeoutMs: number) {
+  if (typeof navigator === "undefined" || !navigator.geolocation) {
+    return Promise.reject(new Error("MAP_LOCATION_UNAVAILABLE"));
+  }
+
+  return new Promise<MapCoordinate>((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const coordinate = readLocationCoordinate({ lng: position.coords.longitude, lat: position.coords.latitude });
+        if (!coordinate) {
+          reject(new Error("MAP_LOCATION_FAILED"));
+          return;
+        }
+
+        resolve(coordinate);
+      },
+      (error) => reject(new Error(getBrowserGeolocationErrorCode(error))),
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 30_000 },
+    );
+  });
+}
+
+function readLocationCoordinate(point: BaiduPoint | undefined): MapCoordinate | null {
   if (!point || !Number.isFinite(point.lng) || !Number.isFinite(point.lat)) {
     return null;
   }

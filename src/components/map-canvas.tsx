@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Crosshair, FolderOpen, MapPin, Plus, RotateCcw, Settings, X } from "lucide-react";
+import { Crosshair, FolderOpen, LocateFixed, MapPin, Plus, RotateCcw, Settings, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { createBaiduMapProvider } from "@/services/baidu-map-provider";
 import { recordMapLoadFailure } from "@/services/logging-service";
+import { getMapLocationErrorMessage } from "@/services/map-location";
 import { resolveMapCanvasOverlay, type MapCanvasActionId } from "@/services/map-canvas-state";
 import type { MapCoordinate, MapMarkerItem, MapPoiPreview, MapProvider } from "@/services/map-provider";
 import type { ProjectMapSettings } from "@/types/project";
@@ -60,6 +61,8 @@ export function MapCanvas({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const providerRef = useRef<MapProvider | null>(null);
   const [loadResult, setLoadResult] = useState<MapLoadResult | null>(null);
+  const [locateStatus, setLocateStatus] = useState<"idle" | "loading" | "success" | "failed">("idle");
+  const [locateMessage, setLocateMessage] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const ak = baiduAk?.trim() ?? "";
   const view = useMemo(
@@ -94,6 +97,24 @@ export function MapCanvas({
 
   function handleCreateAtCenter() {
     onCreateMarkerAtCenter(providerRef.current?.getView()?.center ?? view.center);
+  }
+
+  async function handleLocateMe() {
+    if (status !== "ready" || !providerRef.current) {
+      return;
+    }
+
+    setLocateStatus("loading");
+    setLocateMessage("正在定位...");
+
+    try {
+      const coordinate = await providerRef.current.locateCurrentPosition();
+      setLocateStatus("success");
+      setLocateMessage(`已定位到当前位置：${coordinate.lng.toFixed(5)}, ${coordinate.lat.toFixed(5)}`);
+    } catch (error) {
+      setLocateStatus("failed");
+      setLocateMessage(getMapLocationErrorMessage(error));
+    }
   }
 
   useEffect(() => {
@@ -204,6 +225,17 @@ export function MapCanvas({
           <Crosshair />
           中心点
         </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="bg-white shadow-sm"
+          disabled={status !== "ready" || locateStatus === "loading"}
+          onClick={handleLocateMe}
+        >
+          <LocateFixed />
+          {locateStatus === "loading" ? "定位中" : "定位"}
+        </Button>
         {pendingMarkerCoordinate ? (
           <div className="flex h-9 items-center gap-2 rounded-md border border-primary/30 bg-white px-3 text-xs font-medium text-primary shadow-sm">
             <MapPin className="size-3.5" />
@@ -214,6 +246,16 @@ export function MapCanvas({
           <div className="flex h-9 items-center gap-2 rounded-md border border-amber-300 bg-white px-3 text-xs font-medium text-amber-700 shadow-sm">
             <MapPin className="size-3.5" />
             {movedMarkerCoordinate.lng.toFixed(5)}, {movedMarkerCoordinate.lat.toFixed(5)}
+          </div>
+        ) : null}
+        {locateMessage ? (
+          <div
+            className={`flex min-h-9 max-w-sm items-center rounded-md border bg-white px-3 py-2 text-xs font-medium leading-5 shadow-sm ${
+              locateStatus === "failed" ? "border-amber-300 text-amber-700" : "border-primary/30 text-primary"
+            }`}
+            aria-live="polite"
+          >
+            {locateMessage}
           </div>
         ) : null}
       </div>

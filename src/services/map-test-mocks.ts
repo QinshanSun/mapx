@@ -37,6 +37,12 @@ export class MockMapProvider implements MapProvider {
     return this.view;
   }
 
+  async locateCurrentPosition() {
+    const coordinate = { lng: 121.4737, lat: 31.2304 };
+    this.view = { center: coordinate, zoom: 16 };
+    return coordinate;
+  }
+
   setLayer(layer: MapLayer) {
     this.layer = layer;
   }

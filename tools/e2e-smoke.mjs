@@ -51,6 +51,7 @@ try {
     await cdp.send("Runtime.enable");
     await waitForText(cdp, "MapX");
     await waitForText(cdp, "百度 AK：未配置");
+    await waitForText(cdp, "定位");
     await waitForSelector(cdp, '[data-testid="map-canvas-action-settings"]');
 
     await clickByAriaLabel(cdp, "打开新建项目表单");
@@ -80,6 +81,7 @@ try {
             "project-created",
             "backup-settings-visible",
             "log-directory-entry-visible",
+            "locate-me-entry-visible",
             "marker-create-form-opened",
           ],
         },

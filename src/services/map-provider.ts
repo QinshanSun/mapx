@@ -37,6 +37,7 @@ export interface MapProvider {
   destroy(): void;
   setView(view: MapViewState): void;
   getView(): MapViewState | null;
+  locateCurrentPosition(): Promise<MapCoordinate>;
   setLayer(layer: MapLayer): void;
   getLayer(): MapLayer;
   setMarkers(markers: MapMarkerItem[]): void;

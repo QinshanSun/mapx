@@ -31,6 +31,38 @@ describe("baidu map provider", () => {
     expect(provider.getView()).toEqual({ center: { lng: 116.4074, lat: 39.9042 }, zoom: 10 });
   });
 
+  it("locates the current position and moves the map with plain coordinates", async () => {
+    const fake = createFakeApi({ geolocationResult: { point: { lng: 121.501, lat: 31.221 } }, geolocationStatus: 0 });
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+    await expect(provider.locateCurrentPosition()).resolves.toEqual({ lng: 121.501, lat: 31.221 });
+
+    expect(fake.geolocations).toHaveLength(1);
+    expect(fake.geolocations[0].getCurrentPosition).toHaveBeenCalledWith(expect.any(Function), {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 30000,
+    });
+    expect(provider.getView()).toEqual({ center: { lng: 121.501, lat: 31.221 }, zoom: 16 });
+  });
+
+  it("fails locate-me without crashing when Baidu returns no usable point", async () => {
+    const fake = createFakeApi({ geolocationResult: {}, geolocationStatus: 1 });
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+
+    await expect(provider.locateCurrentPosition()).rejects.toThrow("MAP_LOCATION_FAILED");
+    expect(provider.getView()).toEqual({ center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+  });
+
   it("destroys the previous map before reinitializing", async () => {
     const fake = createFakeApi();
     const provider = new BaiduMapProvider("test-ak", {
@@ -288,11 +320,18 @@ function createContainer() {
   } as unknown as HTMLElement;
 }
 
-function createFakeApi() {
+function createFakeApi(options: { geolocationResult?: { point?: { lng: number; lat: number } }; geolocationStatus?: number } = {}) {
   const instances: FakeMap[] = [];
+  const geolocations: FakeGeolocation[] = [];
   const icons: FakeIcon[] = [];
   const markers: FakeMarker[] = [];
   const api = {
+    Geolocation: class extends FakeGeolocation {
+      constructor() {
+        super(options.geolocationResult ?? { point: { lng: 121.4737, lat: 31.2304 } }, options.geolocationStatus ?? 0);
+        geolocations.push(this);
+      }
+    },
     Icon: class extends FakeIcon {
       constructor(url: string, size: unknown, options?: unknown) {
         super(url, size, options);
@@ -329,13 +368,30 @@ function createFakeApi() {
     api,
     runtime: {
       api,
+      geolocationSuccessStatus: 0,
       normalMapType: "normal-map-type",
       satelliteMapType: "satellite-map-type",
     },
+    geolocations,
     icons,
     instances,
     markers,
   };
+}
+
+class FakeGeolocation {
+  readonly getCurrentPosition = vi.fn((callback: (result?: { point?: { lng: number; lat: number } }) => void) => {
+    callback(this.result);
+  });
+
+  constructor(
+    private readonly result: { point?: { lng: number; lat: number } },
+    private readonly status: number,
+  ) {}
+
+  getStatus() {
+    return this.status;
+  }
 }
 
 class FakeMap {
