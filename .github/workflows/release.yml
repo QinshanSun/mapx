@@ -14,9 +14,6 @@ on:
         required: true
         type: string
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   validate:
     name: Validate release version
@@ -27,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref }}
 
@@ -41,7 +38,7 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -56,12 +53,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ needs.validate.outputs.tag }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -85,7 +82,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ needs.validate.outputs.tag }}
 
@@ -133,12 +130,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ needs.validate.outputs.tag }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -161,7 +158,13 @@ jobs:
 
             这是 MapX 的未签名测试版，需要手动下载安装。
 
-            - macOS 可能提示无法验证开发者，需要在系统设置中允许打开。
+            - macOS 可能提示 "MapX is damaged and can't be opened"。这是未签名、未公证测试版被 Gatekeeper 拦截导致的。把 MapX 拖入 Applications 后，可在 Terminal 执行：
+
+              ```sh
+              xattr -dr com.apple.quarantine /Applications/MapX.app
+              open /Applications/MapX.app
+              ```
+
             - Windows 可能出现 SmartScreen 提示，需要用户手动确认继续安装。
             - 百度地图能力需要在应用设置中配置自己的百度地图开放平台 AK。
             - MapX 数据保存在系统 app data 目录；升级前建议确认自动备份目录中已有近期备份。
