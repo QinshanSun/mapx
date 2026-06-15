@@ -180,11 +180,54 @@ describe("baidu map provider", () => {
     expect(fake.markers[0].point).toEqual({ lng: 121.47, lat: 31.23 });
     expect(fake.markers[0].setTitle).toHaveBeenCalledWith("客户点位");
     expect(fake.icons[0].url).toContain(encodeURIComponent("#2563eb"));
+    expect(decodeIconSvg(fake.icons[0])).toContain('stroke="#ffffff"');
+    expect(decodeIconSvg(fake.icons[0])).not.toContain(">US<");
+    expect(decodeIconSvg(fake.icons[0])).not.toContain(">MP<");
 
     provider.setMarkers([{ id: "marker-3", name: "门店点位", lng: 121.49, lat: 31.25, color: "#16a34a", icon: "Store" }]);
 
     expect(fake.instances[0].removeOverlay).toHaveBeenCalledTimes(2);
     expect(fake.instances[0].addOverlay).toHaveBeenCalledTimes(3);
+  });
+
+  it("falls back to a MapPin icon path for unknown marker icon names", async () => {
+    const fake = createFakeApi();
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+    provider.setMarkers([{ id: "marker-1", name: "未知图标点位", lng: 121.47, lat: 31.23, color: "#64748b", icon: "UnknownIcon" }]);
+
+    const svg = decodeIconSvg(fake.icons[0]);
+    expect(svg).toContain('circle cx="12" cy="10" r="2"');
+    expect(svg).not.toContain("UnknownIcon");
+  });
+
+  it("shows transparent marker labels only when selected or zoomed in", async () => {
+    const fake = createFakeApi();
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+    provider.setMarkers([{ id: "marker-1", name: "静安项目点位", lng: 121.47, lat: 31.23, color: "#2563eb", icon: "MapPin" }]);
+
+    expect(decodeIconSvg(lastIcon(fake.icons))).not.toContain("静安项目点位");
+
+    provider.setSelectedMarker("marker-1");
+
+    expect(decodeIconSvg(lastIcon(fake.icons))).toContain("静安项目点位");
+    expect(decodeIconSvg(lastIcon(fake.icons))).toContain('fill="#0f172a"');
+    expect(decodeIconSvg(lastIcon(fake.icons))).toContain('stroke="#ffffff"');
+    expect(decodeIconSvg(lastIcon(fake.icons))).not.toContain("<rect");
+
+    provider.setSelectedMarker(null);
+    fake.instances[0].triggerZoomEnd(16);
+
+    expect(decodeIconSvg(lastIcon(fake.icons))).toContain("静安项目点位");
   });
 
   it("emits plain marker ids when Baidu markers are clicked", async () => {
@@ -427,10 +470,15 @@ class FakeGeolocation {
 class FakeMap {
   private center = { lng: 0, lat: 0 };
   private clickHandler: ((event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void) | null = null;
+  private zoomEndHandler: (() => void) | null = null;
   private zoom = 0;
-  readonly addEventListener = vi.fn((eventName: string, handler: (event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void) => {
+  readonly addEventListener = vi.fn((eventName: string, handler: (event?: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void) => {
     if (eventName === "click") {
-      this.clickHandler = handler;
+      this.clickHandler = handler as (event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void;
+    }
+
+    if (eventName === "zoomend") {
+      this.zoomEndHandler = () => handler();
     }
   });
   readonly addOverlay = vi.fn();
@@ -456,6 +504,11 @@ class FakeMap {
   triggerClick(event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) {
     this.clickHandler?.(event);
   }
+
+  triggerZoomEnd(zoom: number) {
+    this.zoom = zoom;
+    this.zoomEndHandler?.();
+  }
 }
 
 class FakeIcon {
@@ -464,6 +517,18 @@ class FakeIcon {
     readonly size: unknown,
     readonly options?: unknown,
   ) {}
+}
+
+function decodeIconSvg(icon: FakeIcon | undefined) {
+  if (!icon) {
+    throw new Error("Missing fake icon");
+  }
+
+  return decodeURIComponent(icon.url.replace("data:image/svg+xml;charset=UTF-8,", ""));
+}
+
+function lastIcon(icons: FakeIcon[]) {
+  return icons[icons.length - 1];
 }
 
 class FakeMarker {

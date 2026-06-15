@@ -1,11 +1,30 @@
 import type { CategoryRecord } from "@/types/category";
 
 export const CATEGORY_ICON_OPTIONS = [
-  { name: "Users", label: "客户" },
-  { name: "Store", label: "门店" },
+  { name: "MapPin", label: "点位" },
+  { name: "Building2", label: "建筑" },
+  { name: "Store", label: "商店" },
   { name: "Warehouse", label: "仓库" },
-  { name: "BadgeAlert", label: "竞品" },
-  { name: "MapPin", label: "候选点" },
+  { name: "Users", label: "人员" },
+  { name: "Flag", label: "旗标" },
+  { name: "Star", label: "星标" },
+  { name: "BadgeAlert", label: "告警" },
+  { name: "Wrench", label: "工具" },
+  { name: "Truck", label: "货车" },
+  { name: "Car", label: "车辆" },
+  { name: "Bus", label: "公交" },
+  { name: "Train", label: "轨道" },
+  { name: "School", label: "学校" },
+  { name: "Hospital", label: "医院" },
+  { name: "Utensils", label: "餐饮" },
+  { name: "Factory", label: "工厂" },
+  { name: "Home", label: "住宅" },
+  { name: "BriefcaseBusiness", label: "办公" },
+  { name: "Landmark", label: "机构" },
+  { name: "Trees", label: "园区" },
+  { name: "Package", label: "包裹" },
+  { name: "Shield", label: "安防" },
+  { name: "HeartPulse", label: "健康" },
 ] as const;
 
 export interface CategoryFormState {

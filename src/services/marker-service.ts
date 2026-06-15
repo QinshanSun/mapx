@@ -116,7 +116,7 @@ function buildPreviewMarker(draft: MarkerDraft, markerId = "preview-marker"): Ma
 
 function buildPreviewMarkers(projectId: string, count: number): MarkerRecord[] {
   return Array.from({ length: count }, (_, index) => {
-    const category = PREVIEW_CATEGORIES[index % PREVIEW_CATEGORIES.length];
+    const category = PREVIEW_CATEGORIES.length > 0 ? PREVIEW_CATEGORIES[index % PREVIEW_CATEGORIES.length] : null;
     const markerNumber = index + 1;
 
     return {
@@ -127,7 +127,7 @@ function buildPreviewMarkers(projectId: string, count: number): MarkerRecord[] {
       lat: 31.1 + Math.floor(index / 20) * 0.004,
       coordinateSystem: "BD09",
       address: `上海市测试街区 ${markerNumber} 号`,
-      categoryId: markerNumber % 7 === 0 ? null : category.id,
+      categoryId: markerNumber % 7 === 0 ? null : category?.id ?? null,
       tagIds: [],
       note: markerNumber % 5 === 0 ? "待复访" : null,
       source: "manual",

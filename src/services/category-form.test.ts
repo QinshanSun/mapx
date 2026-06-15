@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CATEGORY_ICON_OPTIONS,
   buildCategorySaveInput,
   categoryToFormState,
   validateCategoryForm,
@@ -24,6 +25,18 @@ describe("category form", () => {
     expect(validateCategoryForm({ name: "商圈", color: "#2563eb", icon: "Circle" }, [])).toBe(
       "请选择可用的分类图标。",
     );
+  });
+
+  it("offers a generic icon set without prescribing business categories", () => {
+    expect(CATEGORY_ICON_OPTIONS).toEqual(
+      expect.arrayContaining([
+        { name: "MapPin", label: "点位" },
+        { name: "Building2", label: "建筑" },
+        { name: "Truck", label: "货车" },
+        { name: "Hospital", label: "医院" },
+      ]),
+    );
+    expect(CATEGORY_ICON_OPTIONS).toHaveLength(24);
   });
 
   it("builds a trimmed save input and normalizes color casing", () => {

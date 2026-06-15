@@ -1,4 +1,35 @@
-import { BadgeAlert, Check, MapPin, Pencil, Plus, Store, Trash2, Users, Warehouse, X, type LucideIcon } from "lucide-react";
+import {
+  BadgeAlert,
+  BriefcaseBusiness,
+  Building2,
+  Bus,
+  Car,
+  Check,
+  Factory,
+  Flag,
+  HeartPulse,
+  Home,
+  Hospital,
+  Landmark,
+  MapPin,
+  Package,
+  Pencil,
+  Plus,
+  School,
+  Shield,
+  Star,
+  Store,
+  Train,
+  Trash2,
+  Trees,
+  Truck,
+  Users,
+  Utensils,
+  Warehouse,
+  Wrench,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -21,11 +52,30 @@ interface CategoryManagementPanelProps {
 }
 
 const CATEGORY_ICON_MAP: Record<string, LucideIcon> = {
-  Users,
+  MapPin,
+  Building2,
   Store,
   Warehouse,
+  Users,
+  Flag,
+  Star,
   BadgeAlert,
-  MapPin,
+  Wrench,
+  Truck,
+  Car,
+  Bus,
+  Train,
+  School,
+  Hospital,
+  Utensils,
+  Factory,
+  Home,
+  BriefcaseBusiness,
+  Landmark,
+  Trees,
+  Package,
+  Shield,
+  HeartPulse,
 };
 
 export function CategoryManagementPanel({ projectId, onError }: CategoryManagementPanelProps) {
