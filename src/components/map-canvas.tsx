@@ -3,6 +3,7 @@ import { Crosshair, FolderOpen, MapPin, Plus, RotateCcw, Settings, X } from "luc
 
 import { Button } from "@/components/ui/button";
 import { createBaiduMapProvider } from "@/services/baidu-map-provider";
+import { recordMapLoadFailure } from "@/services/logging-service";
 import { resolveMapCanvasOverlay, type MapCanvasActionId } from "@/services/map-canvas-state";
 import type { MapCoordinate, MapMarkerItem, MapPoiPreview, MapProvider } from "@/services/map-provider";
 import type { ProjectMapSettings } from "@/types/project";
@@ -124,8 +125,9 @@ export function MapCanvas({
           setLoadResult({ key: loadKey, status: "ready" });
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (!disposed) {
+          void recordMapLoadFailure(readMapLoadFailureCode(error));
           setLoadResult({ key: loadKey, status: "failed", message: "百度地图加载失败，请检查 AK、白名单或网络连接" });
         }
       });
@@ -246,6 +248,14 @@ export function MapCanvas({
       )}
     </div>
   );
+}
+
+function readMapLoadFailureCode(error: unknown) {
+  if (error instanceof Error && /^[A-Z0-9_:-]{1,64}$/.test(error.message)) {
+    return error.message;
+  }
+
+  return "BAIDU_MAP_LOAD_FAILED";
 }
 
 function MapCanvasActionIcon({ actionId }: { actionId: MapCanvasActionId }) {

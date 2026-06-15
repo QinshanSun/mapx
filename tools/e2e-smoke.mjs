@@ -63,6 +63,7 @@ try {
     await waitForText(cdp, "备份目录：浏览器预览模式");
     await waitForText(cdp, "最近备份：暂无备份");
     await waitForText(cdp, "打开备份目录");
+    await waitForText(cdp, "打开日志目录");
 
     await clickButtonByText(cdp, "中心点");
     await waitForText(cdp, "待保存点位");
@@ -78,6 +79,7 @@ try {
             "missing-ak-settings-entry",
             "project-created",
             "backup-settings-visible",
+            "log-directory-entry-visible",
             "marker-create-form-opened",
           ],
         },

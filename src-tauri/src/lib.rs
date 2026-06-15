@@ -2,6 +2,7 @@ mod backup;
 mod cities;
 mod db;
 mod errors;
+mod logging;
 mod markers;
 mod projects;
 mod settings;
@@ -60,17 +61,24 @@ fn structured_error_example(kind: &str) -> Result<&'static str, AppError> {
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
+            logging::log_app_event(app.handle(), "startup", &[]);
             let bootstrap_result =
                 tauri::async_runtime::block_on(db::bootstrap_database(app.handle()));
             let runtime_state = match bootstrap_result {
-                Ok(database) => AppRuntimeState {
-                    bootstrap_status: BootstrapStatus::ready(database.database_path),
-                    pool: Some(database.pool),
-                },
-                Err(message) => AppRuntimeState {
-                    bootstrap_status: BootstrapStatus::failed(message),
-                    pool: None,
-                },
+                Ok(database) => {
+                    logging::log_app_event(app.handle(), "startup_ready", &[]);
+                    AppRuntimeState {
+                        bootstrap_status: BootstrapStatus::ready(database.database_path),
+                        pool: Some(database.pool),
+                    }
+                }
+                Err(message) => {
+                    logging::log_app_event(app.handle(), "startup_failed", &[]);
+                    AppRuntimeState {
+                        bootstrap_status: BootstrapStatus::failed(message),
+                        pool: None,
+                    }
+                }
             };
 
             app.manage(runtime_state);
@@ -99,6 +107,8 @@ pub fn run() {
             settings::open_backup_directory,
             settings::open_data_directory,
             settings::open_log_directory,
+            logging::record_command_error,
+            logging::record_map_load_failure,
             settings::update_baidu_ak,
             settings::update_default_city,
             projects::create_project,

@@ -11,6 +11,7 @@ import {
   getBackupInfo,
   openBackupDirectory,
   openDataDirectory,
+  openLogDirectory,
   updateBaiduAk,
   updateDefaultCity,
 } from "@/services/settings-service";
@@ -33,6 +34,7 @@ export function SettingsPanel({ settings, currentProjectId, onChange, onError }:
   const [isAkSaving, setIsAkSaving] = useState(false);
   const [isOpeningDataDirectory, setIsOpeningDataDirectory] = useState(false);
   const [isOpeningBackupDirectory, setIsOpeningBackupDirectory] = useState(false);
+  const [isOpeningLogDirectory, setIsOpeningLogDirectory] = useState(false);
   const originGuidance = buildBaiduAkOriginGuidance();
   const currentCity = CHINA_CITIES.find((city) => city.name === selectedCity) ?? CHINA_CITIES[0];
   const hasChanges = selectedCity !== normalizeCityName(settings.defaultCity);
@@ -101,6 +103,17 @@ export function SettingsPanel({ settings, currentProjectId, onChange, onError }:
       onError(error);
     } finally {
       setIsOpeningBackupDirectory(false);
+    }
+  }
+
+  async function openLogDir() {
+    setIsOpeningLogDirectory(true);
+    try {
+      await openLogDirectory();
+    } catch (error) {
+      onError(error);
+    } finally {
+      setIsOpeningLogDirectory(false);
     }
   }
 
@@ -210,6 +223,16 @@ export function SettingsPanel({ settings, currentProjectId, onChange, onError }:
           >
             <FolderOpen />
             打开备份目录
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isOpeningLogDirectory}
+            onClick={openLogDir}
+          >
+            <FolderOpen />
+            打开日志目录
           </Button>
           <Button type="button" size="sm" disabled={isOpeningDataDirectory || !appInfo} onClick={openDataDir}>
             <FolderOpen />

@@ -8,7 +8,7 @@ use sqlx::{
 };
 use tauri::Manager;
 
-use crate::backup;
+use crate::{backup, logging};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
@@ -57,11 +57,20 @@ pub async fn bootstrap_database(app: &tauri::AppHandle) -> Result<BootstrappedDa
         .path()
         .data_dir()
         .map_err(|_| "无法获取系统应用数据目录。".to_string())?;
+    let log_directory = app.path().app_log_dir().ok();
 
-    bootstrap_database_in(base_data_dir).await
+    bootstrap_database_in_with_log_dir(base_data_dir, log_directory).await
 }
 
+#[cfg(test)]
 pub async fn bootstrap_database_in(base_data_dir: PathBuf) -> Result<BootstrappedDatabase, String> {
+    bootstrap_database_in_with_log_dir(base_data_dir, None).await
+}
+
+async fn bootstrap_database_in_with_log_dir(
+    base_data_dir: PathBuf,
+    log_directory: Option<PathBuf>,
+) -> Result<BootstrappedDatabase, String> {
     let app_data_dir = base_data_dir.join(APP_DATA_DIR_NAME);
     fs::create_dir_all(&app_data_dir).map_err(|_| "无法创建 MapX 数据目录。".to_string())?;
 
@@ -76,14 +85,32 @@ pub async fn bootstrap_database_in(base_data_dir: PathBuf) -> Result<Bootstrappe
         .await
         .map_err(|_| "无法打开 MapX 本地数据库。".to_string())?;
 
-    MIGRATOR
-        .run(&pool)
-        .await
-        .map_err(|_| "MapX 数据库迁移失败。".to_string())?;
+    logging::log_event_to_dir(log_directory.as_ref(), "db", "migration_started", &[]);
+    if MIGRATOR.run(&pool).await.is_err() {
+        logging::log_event_to_dir(log_directory.as_ref(), "db", "migration_failed", &[]);
+        return Err("MapX 数据库迁移失败。".to_string());
+    }
+    logging::log_event_to_dir(log_directory.as_ref(), "db", "migration_completed", &[]);
 
-    backup::ensure_daily_backup(&pool, database_path.clone())
+    logging::log_event_to_dir(
+        log_directory.as_ref(),
+        "backup",
+        "daily_backup_started",
+        &[],
+    );
+    if backup::ensure_daily_backup(&pool, database_path.clone())
         .await
-        .map_err(|_| "MapX 数据库备份失败。".to_string())?;
+        .is_err()
+    {
+        logging::log_event_to_dir(log_directory.as_ref(), "backup", "daily_backup_failed", &[]);
+        return Err("MapX 数据库备份失败。".to_string());
+    }
+    logging::log_event_to_dir(
+        log_directory.as_ref(),
+        "backup",
+        "daily_backup_completed",
+        &[],
+    );
 
     Ok(BootstrappedDatabase {
         database_path,
