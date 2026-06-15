@@ -73,7 +73,11 @@ try {
       await waitForProcessExit(child);
     }
   }
-  rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  try {
+    rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch (error) {
+    process.stderr.write(`[smoke] warning: failed to remove temporary Chrome profile ${userDataDir}: ${error.message}\n`);
+  }
 }
 
 function findChromePath() {
