@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createMarker, listProjectMarkers, moveMarker, searchProjectMarkers } from "@/services/marker-service";
+import { createMarker, listProjectMarkers, moveMarker, searchProjectMarkers, softDeleteMarker } from "@/services/marker-service";
 
 describe("marker service browser preview state", () => {
   it("keeps saved search markers visible in local list and search results", async () => {
@@ -59,5 +59,21 @@ describe("marker service browser preview state", () => {
       address: "原地址",
       source: "manual",
     });
+  });
+
+  it("hides soft-deleted preview markers from lists and search results", async () => {
+    const projectId = "preview-project-soft-delete-marker";
+    const marker = await createMarker({
+      projectId,
+      name: "待删除点位",
+      lng: 121.47,
+      lat: 31.23,
+      source: "manual",
+    });
+
+    await softDeleteMarker(projectId, marker.id);
+
+    expect((await listProjectMarkers(projectId)).some((currentMarker) => currentMarker.id === marker.id)).toBe(false);
+    expect((await searchProjectMarkers(projectId, "待删除点位")).some((currentMarker) => currentMarker.id === marker.id)).toBe(false);
   });
 });

@@ -31,13 +31,21 @@ export function getWorkspaceShortcutAction(event: KeyboardEvent): WorkspaceActio
   return null;
 }
 
-function isEditableTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) {
+export function isEditableShortcutTarget(target: EventTarget | null) {
+  if (!isElementLike(target)) {
     return false;
   }
 
   const tagName = target.tagName.toLowerCase();
   return target.isContentEditable || tagName === "input" || tagName === "textarea" || tagName === "select";
+}
+
+function isEditableTarget(target: EventTarget | null) {
+  return isEditableShortcutTarget(target);
+}
+
+function isElementLike(target: EventTarget | null): target is HTMLElement {
+  return !!target && typeof target === "object" && "tagName" in target && "isContentEditable" in target;
 }
 
 export function getActionFromMenuPayload(payload: unknown): WorkspaceActionId | null {

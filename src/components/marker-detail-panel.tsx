@@ -1,4 +1,4 @@
-import { Check, MapPin, Pencil, RefreshCw, RotateCcw, X } from "lucide-react";
+import { Check, MapPin, Pencil, RefreshCw, RotateCcw, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { MarkerOverviewPanel } from "@/components/marker-overview-panel";
@@ -42,6 +42,7 @@ interface MarkerDetailPanelProps {
   onSaved: (marker: MarkerRecord) => void;
   onPendingCanceled: () => void;
   onEditModeChange: (isEditing: boolean, marker: MarkerRecord | null) => void;
+  onDeleteRequest: () => void;
   onCreateMarkerRequest: () => void;
   onCreateCategoryRequest: () => void;
   onCreateTagRequest: () => void;
@@ -58,6 +59,7 @@ export function MarkerDetailPanel({
   onSaved,
   onPendingCanceled,
   onEditModeChange,
+  onDeleteRequest,
   onCreateMarkerRequest,
   onCreateCategoryRequest,
   onCreateTagRequest,
@@ -374,17 +376,23 @@ export function MarkerDetailPanel({
               <p className="text-xs text-muted-foreground">点位</p>
               <h3 className="mt-1 truncate text-base font-semibold">{marker.name}</h3>
             </div>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => {
-                setIsEditing(true);
-                onEditModeChange(true, marker);
-              }}
-            >
-              <Pencil />
-              编辑
-            </Button>
+            <div className="flex shrink-0 gap-2">
+              <Button type="button" size="sm" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50" onClick={onDeleteRequest}>
+                <Trash2 />
+                删除
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  setIsEditing(true);
+                  onEditModeChange(true, marker);
+                }}
+              >
+                <Pencil />
+                编辑
+              </Button>
+            </div>
           </div>
 
           <dl className="grid gap-3 text-sm">

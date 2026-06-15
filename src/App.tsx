@@ -39,6 +39,7 @@ import {
 } from "@/services/marker-creation";
 import type { BaiduPoiResult } from "@/services/baidu-poi-search-provider";
 import type { MarkerListFilters } from "@/services/marker-list";
+import { softDeleteMarker } from "@/services/marker-service";
 import { buildMapMarkerItems, findMarkerById } from "@/services/map-marker-render";
 import type { MapCoordinate, MapMarkerItem, MapPoiPreview } from "@/services/map-provider";
 import { cancelPoiPreview, replacePoiPreview } from "@/services/poi-preview";
@@ -105,6 +106,7 @@ function App() {
   const [isProjectRenameOpen, setIsProjectRenameOpen] = useState(false);
   const [projectRenameName, setProjectRenameName] = useState("");
   const [pendingDeleteProjectId, setPendingDeleteProjectId] = useState<string | null>(null);
+  const [pendingDeleteMarker, setPendingDeleteMarker] = useState<MarkerRecord | null>(null);
   const [pendingMarker, setPendingMarker] = useState<PendingMarkerCreation | null>(null);
   const [isMarkerCreationMode, setIsMarkerCreationMode] = useState(false);
   const [projectActionError, setProjectActionError] = useState<string | null>(null);
@@ -125,6 +127,7 @@ function App() {
   const [isProjectSaving, setIsProjectSaving] = useState(false);
   const [isProjectRenaming, setIsProjectRenaming] = useState(false);
   const [isProjectDeleting, setIsProjectDeleting] = useState(false);
+  const [isMarkerDeleting, setIsMarkerDeleting] = useState(false);
   const [isMapLayerSaving, setIsMapLayerSaving] = useState(false);
   const [firstLaunchError, setFirstLaunchError] = useState<string | null>(null);
   const pendingDeleteProject = projectWorkspace?.projects.find((project) => project.id === pendingDeleteProjectId) ?? null;
@@ -418,10 +421,43 @@ function App() {
     setMovedMarkerCoordinate(coordinate);
   }, []);
 
+  const openMarkerDeleteConfirm = useCallback(() => {
+    if (!selectedMarkerRecord || pendingMarker || coordinateEditMarkerId) {
+      return false;
+    }
+
+    setPendingDeleteMarker(selectedMarkerRecord);
+    setProjectActionError(null);
+    return true;
+  }, [coordinateEditMarkerId, pendingMarker, selectedMarkerRecord]);
+
+  const handleMarkerDeleteConfirmed = useCallback(() => {
+    if (!pendingDeleteMarker) {
+      return;
+    }
+
+    setIsMarkerDeleting(true);
+    softDeleteMarker(pendingDeleteMarker.projectId, pendingDeleteMarker.id)
+      .then(() => {
+        setPendingDeleteMarker(null);
+        setSelectedMarkerRecord(null);
+        selectMarker(null);
+        setFilteredMarkerRecords((currentMarkers) => currentMarkers.filter((marker) => marker.id !== pendingDeleteMarker.id));
+        setCoordinateEditMarkerId(null);
+        setMovedMarkerCoordinate(null);
+        setMarkerListRefreshKey((currentKey) => currentKey + 1);
+        setProjectActionError(null);
+        setActivePanel("overview");
+      })
+      .catch((error) => setProjectActionError(getBackendErrorMessage(error)))
+      .finally(() => setIsMarkerDeleting(false));
+  }, [pendingDeleteMarker, selectMarker, setActivePanel]);
+
   useEffect(() => {
     setFilteredMarkerRecords([]);
     setMarkerCategories([]);
     setPoiPreview(cancelPoiPreview());
+    setPendingDeleteMarker(null);
     setCoordinateEditMarkerId(null);
     setMovedMarkerCoordinate(null);
     clearPendingMarker();
@@ -552,11 +588,16 @@ function App() {
         return false;
       }
 
+      if (actionId === "selection.delete") {
+        dispatchAction(actionId, source);
+        openMarkerDeleteConfirm();
+        return false;
+      }
+
       if (
         actionId === "project.new" ||
         actionId === "search.focus" ||
         actionId === "mode.cancel" ||
-        actionId === "selection.delete" ||
         actionId === "view.overview" ||
         actionId === "view.settings" ||
         actionId === "help.about"
@@ -570,7 +611,7 @@ function App() {
 
       return undefined;
     },
-    [dispatchAction, runWithMarkerDirtyGuard, runWorkspaceAction],
+    [dispatchAction, openMarkerDeleteConfirm, runWithMarkerDirtyGuard, runWorkspaceAction],
   );
 
   useWorkspaceActionEvents(handleWorkspaceAction);
@@ -1112,6 +1153,7 @@ function App() {
               }}
               onPendingCanceled={cancelMarkerCreationMode}
               onEditModeChange={handleMarkerEditModeChange}
+              onDeleteRequest={openMarkerDeleteConfirm}
               onCreateMarkerRequest={startMarkerCreationMode}
               onCreateCategoryRequest={() => setActivePanel("settings")}
               onCreateTagRequest={() => setActivePanel("settings")}
@@ -1268,6 +1310,42 @@ function App() {
                 onClick={() => void handleDirtyPromptChoice("cancel")}
               >
                 取消
+              </Button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+      {pendingDeleteMarker ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/35 p-6">
+          <section className="w-full max-w-md rounded-lg border border-red-200 bg-white p-5 shadow-lg" role="dialog" aria-modal="true">
+            <h2 className="text-base font-semibold text-red-700">确认删除“{pendingDeleteMarker.name}”？</h2>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              点位会从当前项目、列表和地图中隐藏，本地 SQLite 记录会保留并写入删除时间。
+            </p>
+            {projectActionError ? <p className="mt-3 text-sm leading-6 text-red-600">{projectActionError}</p> : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isMarkerDeleting}
+                onClick={() => {
+                  setPendingDeleteMarker(null);
+                  setProjectActionError(null);
+                }}
+              >
+                <X />
+                取消
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="border border-red-600 bg-white text-red-700 hover:bg-red-50"
+                disabled={isMarkerDeleting}
+                onClick={handleMarkerDeleteConfirmed}
+              >
+                <Trash2 />
+                删除点位
               </Button>
             </div>
           </section>
