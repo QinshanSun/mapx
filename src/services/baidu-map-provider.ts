@@ -1,5 +1,6 @@
 import { loadBaiduMapScript, type BaiduMapLoadResult } from "@/services/baidu-map-loader";
 import { DEFAULT_LOCATE_ME_ZOOM, DEFAULT_LOCATION_TIMEOUT_MS, getBrowserGeolocationErrorCode } from "@/services/map-location";
+import { adjustMapViewZoom } from "@/services/map-provider";
 import type { MapCoordinate, MapMarkerItem, MapPoiPreview, MapProvider, MapViewState } from "@/services/map-provider";
 import type { MapLayer } from "@/types/project";
 
@@ -12,6 +13,7 @@ interface BaiduMapInstance {
   addEventListener?: (eventName: string, handler: (event: BaiduMapClickEvent) => void) => void;
   addOverlay(overlay: unknown): void;
   centerAndZoom(point: BaiduPoint, zoom: number): void;
+  enableScrollWheelZoom?: (enabled?: boolean) => void;
   getCenter(): BaiduPoint;
   getZoom(): number;
   removeOverlay(overlay: unknown): void;
@@ -118,6 +120,7 @@ export class BaiduMapProvider implements MapProvider {
 
     this.container = container;
     this.map = new runtime.api.Map(container);
+    this.map.enableScrollWheelZoom?.(true);
     this.map.addEventListener?.("click", (event) => {
       const coordinate = readClickCoordinate(event);
       if (coordinate) {
@@ -169,6 +172,18 @@ export class BaiduMapProvider implements MapProvider {
       },
       zoom: this.map.getZoom(),
     };
+  }
+
+  zoomBy(delta: number): MapViewState | null {
+    const currentView = this.getView();
+
+    if (!currentView) {
+      return null;
+    }
+
+    const nextView = adjustMapViewZoom(currentView, delta);
+    this.setView(nextView);
+    return nextView;
   }
 
   async locateCurrentPosition() {

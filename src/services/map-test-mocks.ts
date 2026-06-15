@@ -1,3 +1,4 @@
+import { adjustMapViewZoom } from "@/services/map-provider";
 import type { MapCoordinate, MapMarkerItem, MapPoiPreview, MapProvider, MapViewState } from "@/services/map-provider";
 import type { MapLayer } from "@/types/project";
 
@@ -34,6 +35,15 @@ export class MockMapProvider implements MapProvider {
   }
 
   getView() {
+    return this.view;
+  }
+
+  zoomBy(delta: number) {
+    if (!this.view) {
+      return null;
+    }
+
+    this.view = adjustMapViewZoom(this.view, delta);
     return this.view;
   }
 

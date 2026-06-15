@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { BaiduMapProvider } from "@/services/baidu-map-provider";
+import { MAX_MAP_ZOOM, MIN_MAP_ZOOM } from "@/services/map-provider";
 
 describe("baidu map provider", () => {
   it("initializes the map at the requested view", async () => {
@@ -29,6 +30,35 @@ describe("baidu map provider", () => {
     provider.setView({ center: { lng: 116.4074, lat: 39.9042 }, zoom: 10 });
 
     expect(provider.getView()).toEqual({ center: { lng: 116.4074, lat: 39.9042 }, zoom: 10 });
+  });
+
+  it("enables wheel zoom and adjusts zoom without exposing Baidu objects", async () => {
+    const fake = createFakeApi();
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+
+    expect(fake.instances[0].enableScrollWheelZoom).toHaveBeenCalledWith(true);
+    expect(provider.zoomBy(1)).toEqual({ center: { lng: 121.4737, lat: 31.2304 }, zoom: 13 });
+    expect(provider.getView()).toEqual({ center: { lng: 121.4737, lat: 31.2304 }, zoom: 13 });
+    expect(fake.instances[0].centerAndZoom).toHaveBeenLastCalledWith({ lng: 121.4737, lat: 31.2304 }, 13);
+  });
+
+  it("clamps provider zoom changes to the supported map range", async () => {
+    const fake = createFakeApi();
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: MAX_MAP_ZOOM });
+
+    expect(provider.zoomBy(1)?.zoom).toBe(MAX_MAP_ZOOM);
+    provider.setView({ center: { lng: 121.4737, lat: 31.2304 }, zoom: MIN_MAP_ZOOM });
+    expect(provider.zoomBy(-1)?.zoom).toBe(MIN_MAP_ZOOM);
   });
 
   it("locates the current position and moves the map with plain coordinates", async () => {
@@ -405,6 +435,7 @@ class FakeMap {
   });
   readonly addOverlay = vi.fn();
   readonly destroy = vi.fn();
+  readonly enableScrollWheelZoom = vi.fn();
   readonly removeOverlay = vi.fn();
   readonly setMapType = vi.fn();
   readonly centerAndZoom = vi.fn((point: { lng: number; lat: number }, zoom: number) => {

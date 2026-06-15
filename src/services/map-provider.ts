@@ -17,6 +17,20 @@ export interface MapViewState {
   zoom: number;
 }
 
+export const MIN_MAP_ZOOM = 3;
+export const MAX_MAP_ZOOM = 19;
+
+export function clampMapZoom(zoom: number) {
+  return Math.max(MIN_MAP_ZOOM, Math.min(MAX_MAP_ZOOM, zoom));
+}
+
+export function adjustMapViewZoom(view: MapViewState, delta: number): MapViewState {
+  return {
+    center: view.center,
+    zoom: clampMapZoom(view.zoom + delta),
+  };
+}
+
 export interface MapCoordinate {
   lng: number;
   lat: number;
@@ -37,6 +51,7 @@ export interface MapProvider {
   destroy(): void;
   setView(view: MapViewState): void;
   getView(): MapViewState | null;
+  zoomBy(delta: number): MapViewState | null;
   locateCurrentPosition(): Promise<MapCoordinate>;
   setLayer(layer: MapLayer): void;
   getLayer(): MapLayer;

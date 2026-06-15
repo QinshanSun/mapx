@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Crosshair, FolderOpen, LocateFixed, MapPin, Plus, RotateCcw, Settings, X } from "lucide-react";
+import { Crosshair, FolderOpen, LocateFixed, MapPin, Plus, RotateCcw, Settings, X, ZoomIn, ZoomOut } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { createBaiduMapProvider } from "@/services/baidu-map-provider";
 import { recordMapLoadFailure } from "@/services/logging-service";
 import { getMapLocationErrorMessage } from "@/services/map-location";
-import { resolveMapCanvasOverlay, type MapCanvasActionId } from "@/services/map-canvas-state";
+import { isMapZoomControlEnabled, resolveMapCanvasOverlay, type MapCanvasActionId } from "@/services/map-canvas-state";
 import type { MapCoordinate, MapMarkerItem, MapPoiPreview, MapProvider } from "@/services/map-provider";
 import type { ProjectMapSettings } from "@/types/project";
 
@@ -79,6 +79,7 @@ export function MapCanvas({
   const status: MapCanvasAvailability = !ak ? "missing-ak" : loadResult?.key === loadKey ? loadResult.status : "loading";
   const message = loadResult?.key === loadKey ? loadResult.message : null;
   const overlay = resolveMapCanvasOverlay(status, message);
+  const zoomControlEnabled = isMapZoomControlEnabled(status);
 
   function handleAction(actionId: MapCanvasActionId) {
     if (actionId === "retry") {
@@ -97,6 +98,14 @@ export function MapCanvas({
 
   function handleCreateAtCenter() {
     onCreateMarkerAtCenter(providerRef.current?.getView()?.center ?? view.center);
+  }
+
+  function handleZoom(delta: number) {
+    if (!zoomControlEnabled) {
+      return;
+    }
+
+    providerRef.current?.zoomBy(delta);
   }
 
   async function handleLocateMe() {
@@ -259,6 +268,35 @@ export function MapCanvas({
           </div>
         ) : null}
       </div>
+      {zoomControlEnabled ? (
+        <div className="absolute right-4 top-1/2 z-20 flex -translate-y-1/2 flex-col overflow-hidden rounded-md border border-input bg-white shadow-sm">
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="rounded-none"
+            aria-label="放大地图"
+            title="放大地图"
+            data-testid="map-zoom-in"
+            onClick={() => handleZoom(1)}
+          >
+            <ZoomIn />
+          </Button>
+          <div className="h-px bg-border" />
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="rounded-none"
+            aria-label="缩小地图"
+            title="缩小地图"
+            data-testid="map-zoom-out"
+            onClick={() => handleZoom(-1)}
+          >
+            <ZoomOut />
+          </Button>
+        </div>
+      ) : null}
       {status === "ready" ? null : (
         <div
           className="absolute inset-0 grid place-items-center bg-white/78 p-6 text-center backdrop-blur-sm"

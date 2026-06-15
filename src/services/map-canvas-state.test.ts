@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveMapCanvasOverlay } from "@/services/map-canvas-state";
+import { isMapZoomControlEnabled, resolveMapCanvasOverlay } from "@/services/map-canvas-state";
 
 describe("map canvas unavailable states", () => {
   it("offers a settings entry when the Baidu AK is missing", () => {
@@ -21,5 +21,12 @@ describe("map canvas unavailable states", () => {
         { id: "logs", label: "打开日志目录" },
       ],
     });
+  });
+
+  it("enables zoom controls only when the map is ready", () => {
+    expect(isMapZoomControlEnabled("ready")).toBe(true);
+    expect(isMapZoomControlEnabled("missing-ak")).toBe(false);
+    expect(isMapZoomControlEnabled("loading")).toBe(false);
+    expect(isMapZoomControlEnabled("failed")).toBe(false);
   });
 });

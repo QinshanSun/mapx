@@ -45,3 +45,7 @@ export function resolveMapCanvasOverlay(status: MapCanvasStatus, message?: strin
       };
   }
 }
+
+export function isMapZoomControlEnabled(status: MapCanvasStatus) {
+  return status === "ready";
+}
