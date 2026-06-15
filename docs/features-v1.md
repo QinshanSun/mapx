@@ -527,7 +527,7 @@ Scope:
 Acceptance Criteria:
 - 用户可以新建项目并立即切换到新项目。
 - 项目列表不显示 soft-deleted 项目。
-- 新项目自动拥有项目设置和默认分类触发点。
+- 新项目自动拥有项目设置，但不创建预置业务分类。
 
 Validation:
 - Rust 测试覆盖 create/list project。
@@ -587,7 +587,7 @@ Validation:
 Out of Scope:
 - 回收站/恢复项目。
 
-### TAX-001: Create default categories for new projects
+### TAX-001: Initialize category model for new projects
 
 Epic: Categories & Tags
 Type: feature
@@ -597,16 +597,17 @@ Milestone: M2 Local Workspace
 Depends on: DATA-002, PROJ-001
 
 Scope:
-- 新项目自动创建默认分类：客户、门店、仓库、竞品、候选点。
-- 分类包含 HEX 颜色、lucide icon name、sort order。
+- 新项目不创建预置业务分类。
+- 分类模型支持用户自定义名称、HEX 颜色、lucide icon name、sort order。
 
 Acceptance Criteria:
-- 每个新项目都有 5 个默认分类。
+- 每个新项目默认没有真实 category 行。
 - `未分类` 不作为真实 category 行存在。
-- 默认分类图标来自 lucide allowlist。
+- 用户自定义分类图标来自 lucide allowlist。
 
 Validation:
-- Rust 测试覆盖新项目默认分类。
+- Rust 测试覆盖新项目不创建预置分类。
+- Rust 测试覆盖分类图标 allowlist。
 
 Out of Scope:
 - 分类管理 UI。

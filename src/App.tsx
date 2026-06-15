@@ -3,14 +3,12 @@ import {
   CircleHelp,
   FolderOpen,
   Check,
-  Map as MapIcon,
   MapPinned,
   Pencil,
   Plus,
   RotateCcw,
   Search,
   Settings,
-  Satellite,
   Star,
   Trash2,
   X,
@@ -54,6 +52,7 @@ import {
   validateProjectName,
 } from "@/services/project-service";
 import { getFirstLaunchSettings, openLogDirectory } from "@/services/settings-service";
+import { resolveWorkspaceDetailTitle } from "@/services/workspace-detail-title";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { BootstrapStatus } from "@/types/bootstrap";
 import type { CategoryRecord } from "@/types/category";
@@ -70,21 +69,6 @@ const navItems: Array<{ panel: WorkspacePanel; label: string; icon: LucideIcon }
   { panel: "settings", label: "设置", icon: Settings },
   { panel: "about", label: "关于", icon: CircleHelp },
 ];
-
-function getDetailTitle(panel: WorkspacePanel) {
-  switch (panel) {
-    case "markers":
-      return "点位详情";
-    case "search":
-      return "搜索结果";
-    case "settings":
-      return "设置入口";
-    case "about":
-      return "关于信息";
-    case "overview":
-      return "项目概览";
-  }
-}
 
 interface PendingDirtyAction {
   message: string;
@@ -111,6 +95,7 @@ function App() {
   const [isMarkerCreationMode, setIsMarkerCreationMode] = useState(false);
   const [projectActionError, setProjectActionError] = useState<string | null>(null);
   const [selectedMarkerRecord, setSelectedMarkerRecord] = useState<MarkerRecord | null>(null);
+  const [isMarkerDetailEditing, setIsMarkerDetailEditing] = useState(false);
   const [filteredMarkerRecords, setFilteredMarkerRecords] = useState<MarkerRecord[]>([]);
   const [markerCategories, setMarkerCategories] = useState<CategoryRecord[]>([]);
   const [markerListFilters, setMarkerListFilters] = useState<MarkerListFilters>({
@@ -121,6 +106,7 @@ function App() {
   const [markerListRefreshKey, setMarkerListRefreshKey] = useState(0);
   const [mapAvailability, setMapAvailability] = useState<MapCanvasAvailability>("loading");
   const [poiPreview, setPoiPreview] = useState<MapPoiPreview | null>(null);
+  const [searchFocusRequestKey, setSearchFocusRequestKey] = useState(0);
   const [coordinateEditMarkerId, setCoordinateEditMarkerId] = useState<string | null>(null);
   const [movedMarkerCoordinate, setMovedMarkerCoordinate] = useState<MapCoordinate | null>(null);
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | null>(null);
@@ -284,6 +270,7 @@ function App() {
         run: () => {
           setCoordinateEditMarkerId(null);
           setMovedMarkerCoordinate(null);
+          setIsMarkerDetailEditing(false);
           selectMarker(marker.id);
           setSelectedMarkerRecord(marker);
         },
@@ -297,6 +284,7 @@ function App() {
       setPoiPreview(cancelPoiPreview());
       setCoordinateEditMarkerId(null);
       setMovedMarkerCoordinate(null);
+      setIsMarkerDetailEditing(false);
       selectMarker(marker.id);
       setSelectedMarkerRecord(marker);
     },
@@ -314,6 +302,7 @@ function App() {
 
       setPoiPreview(nextPreview);
       setSelectedMarkerRecord(null);
+      setIsMarkerDetailEditing(false);
       selectMarker(null);
       setProjectActionError(null);
     },
@@ -329,6 +318,7 @@ function App() {
     setIsMarkerCreationMode(false);
     setCoordinateEditMarkerId(null);
     setMovedMarkerCoordinate(null);
+    setIsMarkerDetailEditing(false);
   }, []);
 
   const startMarkerCreationMode = useCallback(() => {
@@ -348,6 +338,7 @@ function App() {
     setIsMarkerCreationMode(false);
     setCoordinateEditMarkerId(null);
     setMovedMarkerCoordinate(null);
+    setIsMarkerDetailEditing(false);
   }, []);
 
   const beginPendingMarkerCreation = useCallback(
@@ -363,6 +354,7 @@ function App() {
           setPoiPreview(cancelPoiPreview());
           setCoordinateEditMarkerId(null);
           setMovedMarkerCoordinate(null);
+          setIsMarkerDetailEditing(false);
           setSelectedMarkerRecord(null);
           selectMarker(null);
           setActivePanel("markers");
@@ -406,6 +398,8 @@ function App() {
   }, [beginPendingMarkerCreation, poiPreview, projectWorkspace]);
 
   const handleMarkerEditModeChange = useCallback((isEditing: boolean, marker: MarkerRecord | null) => {
+    setIsMarkerDetailEditing(isEditing && Boolean(marker));
+
     if (isEditing && marker) {
       setCoordinateEditMarkerId(marker.id);
       setMovedMarkerCoordinate(null);
@@ -441,6 +435,7 @@ function App() {
       .then(() => {
         setPendingDeleteMarker(null);
         setSelectedMarkerRecord(null);
+        setIsMarkerDetailEditing(false);
         selectMarker(null);
         setFilteredMarkerRecords((currentMarkers) => currentMarkers.filter((marker) => marker.id !== pendingDeleteMarker.id));
         setCoordinateEditMarkerId(null);
@@ -460,6 +455,7 @@ function App() {
     setPendingDeleteMarker(null);
     setCoordinateEditMarkerId(null);
     setMovedMarkerCoordinate(null);
+    setIsMarkerDetailEditing(false);
     clearPendingMarker();
   }, [clearPendingMarker, projectWorkspace?.currentProject.id]);
 
@@ -577,6 +573,10 @@ function App() {
       if (actionId === "project.new") {
         openProjectCreateForm();
       }
+
+      if (actionId === "search.focus") {
+        setSearchFocusRequestKey((currentKey) => currentKey + 1);
+      }
     },
     [dispatchAction, openProjectCreateForm],
   );
@@ -639,6 +639,7 @@ function App() {
             .then((workspace) => {
               setProjectWorkspace(workspace);
               setSelectedMarkerRecord(null);
+              setIsMarkerDetailEditing(false);
               selectMarker(null);
               setIsProjectRenameOpen(false);
               setProjectRenameName("");
@@ -668,6 +669,7 @@ function App() {
         .then((workspace) => {
           setProjectWorkspace(workspace);
           setSelectedMarkerRecord(null);
+          setIsMarkerDetailEditing(false);
           selectMarker(null);
           setNewProjectName("");
           setIsProjectCreateOpen(false);
@@ -727,6 +729,7 @@ function App() {
 
         if (isDeletingCurrentProject) {
           setSelectedMarkerRecord(null);
+          setIsMarkerDetailEditing(false);
           selectMarker(null);
           setIsProjectRenameOpen(false);
           setProjectRenameName("");
@@ -830,7 +833,13 @@ function App() {
     return <BootstrapGate title="正在读取项目工作区" message="MapX 正在准备默认项目和项目设置。" />;
   }
 
-  const detailTitle = getDetailTitle(activePanel);
+  const detailTitle = resolveWorkspaceDetailTitle({
+    activePanel,
+    hasSelectedMarker: Boolean(selectedMarkerRecord),
+    hasPendingMarker: Boolean(pendingMarker),
+    isEditingMarker: isMarkerDetailEditing,
+    hasPoiPreview: Boolean(poiPreview),
+  });
   const akStatus = firstLaunchSettings.baiduAk ? "已配置" : "未配置";
   const mapLayerLabel = projectWorkspace.settings.mapLayer === "satellite" ? "卫星图" : "普通地图";
 
@@ -903,7 +912,7 @@ function App() {
               return (
                 <div
                   key={project.id}
-                  className={`flex items-center rounded-md border transition ${
+                  className={`group flex items-center rounded-md border transition ${
                     isCurrent
                       ? "border-primary/30 bg-primary/5 text-primary"
                       : "border-border text-foreground hover:border-primary/40 hover:bg-accent"
@@ -916,7 +925,7 @@ function App() {
                   >
                     <span className="block truncate">{project.name}</span>
                   </button>
-                  <div className="flex shrink-0 gap-1 pr-1">
+                  <div className="pointer-events-none flex shrink-0 gap-1 pr-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
                     {isCurrent ? (
                       <Button type="button" size="icon" variant="ghost" aria-label={`重命名项目 ${project.name}`} onClick={openProjectRenameForm}>
                         <Pencil />
@@ -926,6 +935,7 @@ function App() {
                       type="button"
                       size="icon"
                       variant="ghost"
+                      className="text-red-700 hover:bg-red-50 hover:text-red-700"
                       aria-label={`删除项目 ${project.name}`}
                       onClick={() => openProjectDeleteConfirm(project.id)}
                     >
@@ -985,7 +995,8 @@ function App() {
                 onClick={() => handlePanelSelect(item.panel)}
               >
                 <Icon />
-                {item.label}
+                <span className="min-w-0 flex-1 text-left">{item.label}</span>
+                {item.panel === "search" ? <span className="text-[11px] font-medium text-slate-500">⌘/Ctrl F</span> : null}
               </Button>
             );
           })}
@@ -1001,57 +1012,10 @@ function App() {
 
       <section className="grid min-w-0 flex-1 grid-cols-[minmax(420px,1fr)_340px]">
         <section className="flex min-w-0 flex-col bg-slate-50">
-          <header className="flex h-16 items-center justify-between border-b border-border bg-white px-5">
+          <header className="flex h-16 items-center border-b border-border bg-white px-5">
             <div>
-              <p className="text-xs text-muted-foreground">当前项目</p>
+              <p className="text-xs font-medium text-slate-600">当前项目</p>
               <h2 className="text-base font-semibold">{projectWorkspace.currentProject.name}</h2>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex h-9 items-center rounded-md border border-input bg-white p-1" aria-label="地图图层">
-                <button
-                  type="button"
-                  className={`flex h-7 items-center gap-1 rounded px-2 text-xs font-medium transition ${
-                    projectWorkspace.settings.mapLayer === "normal"
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                  }`}
-                  disabled={isMapLayerSaving}
-                  onClick={() => handleMapLayerChange("normal")}
-                >
-                  <MapIcon className="size-3.5" />
-                  普通
-                </button>
-                <button
-                  type="button"
-                  className={`flex h-7 items-center gap-1 rounded px-2 text-xs font-medium transition ${
-                    projectWorkspace.settings.mapLayer === "satellite"
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                  }`}
-                  disabled={isMapLayerSaving}
-                  onClick={() => handleMapLayerChange("satellite")}
-                >
-                  <Satellite className="size-3.5" />
-                  卫星
-                </button>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  runWithMarkerDirtyGuard({
-                    message: "打开搜索前，当前点位还有未保存的修改。",
-                    run: () => runWorkspaceAction("search.focus", "button"),
-                  })
-                }
-              >
-                <Search />
-                搜索
-              </Button>
-              <Button size="sm" onClick={() => openProjectCreate("button")}>
-                <FolderOpen />
-                新建项目
-              </Button>
             </div>
           </header>
 
@@ -1080,6 +1044,7 @@ function App() {
                 mapAvailability={mapAvailability}
                 selectedMarkerId={selectedMarkerId}
                 selectedPoiId={poiPreview?.id ?? null}
+                focusRequestKey={searchFocusRequestKey}
                 onSearchCityChange={handleSearchCityChange}
                 onSelectMarker={(marker) => {
                   runWithMarkerDirtyGuard({
@@ -1104,8 +1069,10 @@ function App() {
                 isMarkerCreationMode={isMarkerCreationMode}
                 pendingMarkerCoordinate={pendingMarker ? { lng: pendingMarker.lng, lat: pendingMarker.lat } : null}
                 movedMarkerCoordinate={movedMarkerCoordinate}
+                isMapLayerSaving={isMapLayerSaving}
                 onSelectMarker={handleMapMarkerSelect}
                 onMarkerDragged={handleMarkerDragged}
+                onMapLayerChange={handleMapLayerChange}
                 onStartMarkerCreationMode={startMarkerCreationMode}
                 onCancelMarkerCreationMode={cancelMarkerCreationMode}
                 onCreateMarkerAtCoordinate={handleCreateMarkerAtCoordinate}
@@ -1127,7 +1094,7 @@ function App() {
 
         <aside className="flex min-w-0 flex-col border-l border-border bg-white">
           <header className="border-b border-border p-5">
-            <p className="text-xs text-muted-foreground">右侧详情</p>
+            <p className="text-xs font-medium text-slate-600">当前面板</p>
             <h2 className="mt-1 text-base font-semibold">{detailTitle}</h2>
           </header>
 
@@ -1212,6 +1179,26 @@ function App() {
               onChange={setFirstLaunchSettings}
               onError={handleSettingsError}
             />
+          ) : activePanel === "about" ? (
+            <div className="space-y-4 p-5 text-sm leading-6">
+              <section className="rounded-lg border border-border p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold">MapX</h3>
+                  <CircleHelp className="size-4 text-muted-foreground" />
+                </div>
+                <p className="text-muted-foreground">项目制地图管理工具，第一版聚焦点位管理和本地 SQLite 数据。</p>
+                <dl className="mt-4 grid gap-3">
+                  <div>
+                    <dt className="text-xs font-medium text-slate-600">应用名称</dt>
+                    <dd className="mt-1 font-medium">MapX</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-slate-600">Bundle identifier</dt>
+                    <dd className="mt-1 font-medium">com.qinshan.mapx</dd>
+                  </div>
+                </dl>
+              </section>
+            </div>
           ) : (
             <div className="space-y-4 p-5">
               <section className="rounded-lg border border-border p-4">
@@ -1280,8 +1267,8 @@ function App() {
       </section>
       {dirtyPrompt ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/35 p-6">
-          <section className="w-full max-w-md rounded-lg border border-border bg-white p-5 shadow-lg" role="dialog" aria-modal="true">
-            <h2 className="text-base font-semibold">点位修改尚未保存</h2>
+          <section className="w-full max-w-md rounded-lg border border-border bg-white p-5 shadow-lg" role="dialog" aria-modal="true" aria-labelledby="dirty-guard-title">
+            <h2 id="dirty-guard-title" className="text-base font-semibold">点位修改尚未保存</h2>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">{dirtyPrompt.message}</p>
             {dirtyPrompt.error ? <p className="mt-3 text-sm leading-6 text-red-600">{dirtyPrompt.error}</p> : null}
             <div className="mt-5 flex justify-end gap-2">
@@ -1317,8 +1304,8 @@ function App() {
       ) : null}
       {pendingDeleteMarker ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/35 p-6">
-          <section className="w-full max-w-md rounded-lg border border-red-200 bg-white p-5 shadow-lg" role="dialog" aria-modal="true">
-            <h2 className="text-base font-semibold text-red-700">确认删除“{pendingDeleteMarker.name}”？</h2>
+          <section className="w-full max-w-md rounded-lg border border-red-200 bg-white p-5 shadow-lg" role="dialog" aria-modal="true" aria-labelledby="delete-marker-title">
+            <h2 id="delete-marker-title" className="text-base font-semibold text-red-700">确认删除“{pendingDeleteMarker.name}”？</h2>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
               点位会从当前项目、列表和地图中隐藏，本地 SQLite 记录会保留并写入删除时间。
             </p>
@@ -1353,8 +1340,8 @@ function App() {
       ) : null}
       {pendingDeleteProject ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/35 p-6">
-          <section className="w-full max-w-md rounded-lg border border-red-200 bg-white p-5 shadow-lg" role="dialog" aria-modal="true">
-            <h2 className="text-base font-semibold text-red-700">确认删除“{pendingDeleteProject.name}”？</h2>
+          <section className="w-full max-w-md rounded-lg border border-red-200 bg-white p-5 shadow-lg" role="dialog" aria-modal="true" aria-labelledby="delete-project-title">
+            <h2 id="delete-project-title" className="text-base font-semibold text-red-700">确认删除“{pendingDeleteProject.name}”？</h2>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
               项目会从切换器隐藏，本地 SQLite 记录会保留并写入删除时间。
             </p>

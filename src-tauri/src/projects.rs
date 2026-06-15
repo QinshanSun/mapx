@@ -5,7 +5,6 @@ use crate::{
     cities::{city_center_for, default_city_center, validate_city_name, DEFAULT_CITY},
     db::AppRuntimeState,
     errors::AppError,
-    taxonomy::create_default_categories_for_project,
     validation::{ensure_active_project, validate_required_name},
 };
 
@@ -297,8 +296,6 @@ async fn insert_project_with_settings(
     .await
     .map_err(AppError::from)?;
 
-    create_default_categories_for_project(pool, &project_id).await?;
-
     load_project_by_id(pool, &project_id).await
 }
 
@@ -588,7 +585,7 @@ mod tests {
 
         assert_eq!(project_count, 1);
         assert_eq!(settings_count, 1);
-        assert_eq!(category_count, 5);
+        assert_eq!(category_count, 0);
     }
 
     #[tokio::test]
@@ -612,72 +609,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn new_project_receives_default_categories() {
+    async fn new_project_starts_without_user_defined_categories() {
         let (_temp_dir, pool) = create_test_pool().await;
 
         let project = insert_project_with_settings(&pool, "客户项目", "上海")
             .await
             .expect("project should be created");
-        let rows = sqlx::query(
-            "SELECT name, color, icon, sort_order
+        let category_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)
              FROM categories
              WHERE project_id = ?
-               AND deleted_at IS NULL
-             ORDER BY sort_order ASC",
+               AND deleted_at IS NULL",
         )
         .bind(project.id)
-        .fetch_all(&pool)
+        .fetch_one(&pool)
         .await
-        .expect("categories should load");
+        .expect("category count should load");
 
-        let categories: Vec<(String, String, String, i64)> = rows
-            .into_iter()
-            .map(|row| {
-                (
-                    row.try_get::<String, _>("name").unwrap(),
-                    row.try_get::<String, _>("color").unwrap(),
-                    row.try_get::<String, _>("icon").unwrap(),
-                    row.try_get::<i64, _>("sort_order").unwrap(),
-                )
-            })
-            .collect();
-
-        assert_eq!(
-            categories,
-            vec![
-                (
-                    "客户".to_string(),
-                    "#2563eb".to_string(),
-                    "Users".to_string(),
-                    10
-                ),
-                (
-                    "门店".to_string(),
-                    "#16a34a".to_string(),
-                    "Store".to_string(),
-                    20
-                ),
-                (
-                    "仓库".to_string(),
-                    "#f59e0b".to_string(),
-                    "Warehouse".to_string(),
-                    30,
-                ),
-                (
-                    "竞品".to_string(),
-                    "#dc2626".to_string(),
-                    "BadgeAlert".to_string(),
-                    40,
-                ),
-                (
-                    "候选点".to_string(),
-                    "#7c3aed".to_string(),
-                    "MapPin".to_string(),
-                    50,
-                ),
-            ]
-        );
-        assert!(!categories.iter().any(|category| category.0 == "未分类"));
+        assert_eq!(category_count, 0);
     }
 
     #[tokio::test]

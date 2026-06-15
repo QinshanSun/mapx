@@ -249,14 +249,7 @@ Rules:
 - Marker color and icon are controlled by category
 - Per-marker style overrides are not supported in V1
 - `未分类` is represented by `markers.category_id = null`, not a real category row
-
-New projects automatically create default categories:
-
-- 客户
-- 门店
-- 仓库
-- 竞品
-- 候选点
+- New projects start without preset business categories; users define category names, colors, and lucide icons themselves
 
 Deleting a category:
 
@@ -648,7 +641,7 @@ V1 is ready when:
 - macOS and Windows builds are verified in CI
 - Missing/invalid Baidu AK states are handled without crashing
 - Users can create/switch/rename/soft-delete projects
-- New projects get default categories and project settings
+- New projects get project settings and no preset business categories
 - Users can create, edit, drag-move, and soft-delete markers
 - Marker data persists in SQLite through Rust commands
 - Categories and tags work with the specified deletion rules
@@ -658,4 +651,3 @@ V1 is ready when:
 - Daily backup policy runs and keeps 7 backups
 - Logs exist locally and avoid AK/user-content leakage
 - Core tests cover the listed data and UI rules
-

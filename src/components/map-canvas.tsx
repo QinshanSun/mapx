@@ -1,13 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Crosshair, FolderOpen, LocateFixed, MapPin, Plus, RotateCcw, Settings, X, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  Crosshair,
+  FolderOpen,
+  LocateFixed,
+  Map as MapIcon,
+  MapPin,
+  Plus,
+  RotateCcw,
+  Satellite,
+  Settings,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { createBaiduMapProvider } from "@/services/baidu-map-provider";
 import { recordMapLoadFailure } from "@/services/logging-service";
 import { getMapLocationErrorMessage } from "@/services/map-location";
-import { isMapZoomControlEnabled, resolveMapCanvasOverlay, type MapCanvasActionId } from "@/services/map-canvas-state";
+import {
+  isMapZoomControlEnabled,
+  resolveLocateStatusMessage,
+  resolveMapCanvasOverlay,
+  type MapCanvasActionId,
+} from "@/services/map-canvas-state";
 import type { MapCoordinate, MapMarkerItem, MapPoiPreview, MapProvider } from "@/services/map-provider";
-import type { ProjectMapSettings } from "@/types/project";
+import type { MapLayer, ProjectMapSettings } from "@/types/project";
 
 interface MapLoadResult {
   key: string;
@@ -27,8 +45,10 @@ interface MapCanvasProps {
   isMarkerCreationMode: boolean;
   pendingMarkerCoordinate: MapCoordinate | null;
   movedMarkerCoordinate: MapCoordinate | null;
+  isMapLayerSaving: boolean;
   onSelectMarker: (markerId: string) => void;
   onMarkerDragged: (markerId: string, coordinate: MapCoordinate) => void;
+  onMapLayerChange: (mapLayer: MapLayer) => void;
   onStartMarkerCreationMode: () => void;
   onCancelMarkerCreationMode: () => void;
   onCreateMarkerAtCoordinate: (coordinate: MapCoordinate) => void;
@@ -48,8 +68,10 @@ export function MapCanvas({
   isMarkerCreationMode,
   pendingMarkerCoordinate,
   movedMarkerCoordinate,
+  isMapLayerSaving,
   onSelectMarker,
   onMarkerDragged,
+  onMapLayerChange,
   onStartMarkerCreationMode,
   onCancelMarkerCreationMode,
   onCreateMarkerAtCoordinate,
@@ -114,15 +136,15 @@ export function MapCanvas({
     }
 
     setLocateStatus("loading");
-    setLocateMessage("正在定位...");
+    setLocateMessage(resolveLocateStatusMessage("loading"));
 
     try {
       const coordinate = await providerRef.current.locateCurrentPosition();
       setLocateStatus("success");
-      setLocateMessage(`已定位到当前位置：${coordinate.lng.toFixed(5)}, ${coordinate.lat.toFixed(5)}`);
+      setLocateMessage(resolveLocateStatusMessage("success", coordinate));
     } catch (error) {
       setLocateStatus("failed");
-      setLocateMessage(getMapLocationErrorMessage(error));
+      setLocateMessage(resolveLocateStatusMessage("failed", null, getMapLocationErrorMessage(error)));
     }
   }
 
@@ -218,19 +240,57 @@ export function MapCanvas({
   return (
     <div className="relative h-full w-full overflow-hidden bg-slate-100">
       <div ref={containerRef} className="absolute inset-0" aria-label="百度地图画布" />
-      <div className="absolute left-4 top-4 z-20 flex flex-wrap items-center gap-2">
+      <div
+        className="absolute left-4 top-4 z-20 flex h-9 items-center rounded-md border border-input bg-white p-1 shadow-sm"
+        aria-label="地图图层"
+        role="group"
+      >
+        <button
+          type="button"
+          className={`flex h-7 items-center gap-1 rounded px-2 text-xs font-medium transition focus:outline-none focus:ring-2 focus:ring-ring ${
+            settings.mapLayer === "normal"
+              ? "bg-primary text-primary-foreground"
+              : "text-slate-600 hover:bg-accent hover:text-foreground"
+          }`}
+          aria-label="切换到普通地图"
+          aria-pressed={settings.mapLayer === "normal"}
+          disabled={isMapLayerSaving}
+          onClick={() => onMapLayerChange("normal")}
+        >
+          <MapIcon className="size-3.5" />
+          普通
+        </button>
+        <button
+          type="button"
+          className={`flex h-7 items-center gap-1 rounded px-2 text-xs font-medium transition focus:outline-none focus:ring-2 focus:ring-ring ${
+            settings.mapLayer === "satellite"
+              ? "bg-primary text-primary-foreground"
+              : "text-slate-600 hover:bg-accent hover:text-foreground"
+          }`}
+          aria-label="切换到卫星地图"
+          aria-pressed={settings.mapLayer === "satellite"}
+          disabled={isMapLayerSaving}
+          onClick={() => onMapLayerChange("satellite")}
+        >
+          <Satellite className="size-3.5" />
+          卫星
+        </button>
+      </div>
+
+      <div className="absolute right-4 top-4 z-20 flex items-center gap-2" role="group" aria-label="地图工具">
         <Button
           type="button"
           size="sm"
           variant={isMarkerCreationMode ? "default" : "outline"}
           className="bg-white shadow-sm data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
           data-active={isMarkerCreationMode}
+          aria-label={isMarkerCreationMode ? "取消添加点位模式" : "进入添加点位模式"}
           onClick={isMarkerCreationMode ? onCancelMarkerCreationMode : onStartMarkerCreationMode}
         >
           {isMarkerCreationMode ? <X /> : <Plus />}
           {isMarkerCreationMode ? "取消添加" : "添加点位"}
         </Button>
-        <Button type="button" size="sm" variant="outline" className="bg-white shadow-sm" onClick={handleCreateAtCenter}>
+        <Button type="button" size="sm" variant="outline" className="bg-white shadow-sm" aria-label="用地图中心创建点位" onClick={handleCreateAtCenter}>
           <Crosshair />
           中心点
         </Button>
@@ -239,28 +299,34 @@ export function MapCanvas({
           size="sm"
           variant="outline"
           className="bg-white shadow-sm"
+          aria-label={locateStatus === "loading" ? "正在定位当前位置" : "定位当前位置"}
           disabled={status !== "ready" || locateStatus === "loading"}
           onClick={handleLocateMe}
         >
           <LocateFixed />
           {locateStatus === "loading" ? "定位中" : "定位"}
         </Button>
+      </div>
+
+      <div className="pointer-events-none absolute left-4 top-16 z-20 flex max-w-[min(520px,calc(100%-8rem))] flex-col gap-2">
         {pendingMarkerCoordinate ? (
-          <div className="flex h-9 items-center gap-2 rounded-md border border-primary/30 bg-white px-3 text-xs font-medium text-primary shadow-sm">
+          <div className="flex min-h-9 items-center gap-2 rounded-md border border-primary/30 bg-white/95 px-3 py-2 text-xs font-medium text-primary shadow-sm">
             <MapPin className="size-3.5" />
+            待保存点位：
             {pendingMarkerCoordinate.lng.toFixed(5)}, {pendingMarkerCoordinate.lat.toFixed(5)}
           </div>
         ) : null}
         {movedMarkerCoordinate ? (
-          <div className="flex h-9 items-center gap-2 rounded-md border border-amber-300 bg-white px-3 text-xs font-medium text-amber-700 shadow-sm">
+          <div className="flex min-h-9 items-center gap-2 rounded-md border border-amber-400 bg-white/95 px-3 py-2 text-xs font-medium text-amber-800 shadow-sm">
             <MapPin className="size-3.5" />
+            坐标已变更：
             {movedMarkerCoordinate.lng.toFixed(5)}, {movedMarkerCoordinate.lat.toFixed(5)}
           </div>
         ) : null}
         {locateMessage ? (
           <div
-            className={`flex min-h-9 max-w-sm items-center rounded-md border bg-white px-3 py-2 text-xs font-medium leading-5 shadow-sm ${
-              locateStatus === "failed" ? "border-amber-300 text-amber-700" : "border-primary/30 text-primary"
+            className={`flex min-h-9 items-center rounded-md border bg-white/95 px-3 py-2 text-xs font-medium leading-5 shadow-sm ${
+              locateStatus === "failed" ? "border-amber-400 text-amber-900" : "border-primary/30 text-primary"
             }`}
             aria-live="polite"
           >

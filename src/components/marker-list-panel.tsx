@@ -2,7 +2,13 @@ import { Filter, ListFilter, MapPin, SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { listProjectCategories } from "@/services/category-service";
-import { filterAndSortMarkers, type MarkerListFilters, type MarkerSortKey } from "@/services/marker-list";
+import {
+  buildMarkerFilterSummary,
+  filterAndSortMarkers,
+  hasActiveMarkerFilters,
+  type MarkerListFilters,
+  type MarkerSortKey,
+} from "@/services/marker-list";
 import { listProjectMarkers } from "@/services/marker-service";
 import { listProjectTags } from "@/services/tag-service";
 import type { CategoryRecord } from "@/types/category";
@@ -40,6 +46,8 @@ export function MarkerListPanel({
   const [scrollTop, setScrollTop] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const filteredMarkers = useMemo(() => filterAndSortMarkers(markers, filters), [filters, markers]);
+  const filterSummary = useMemo(() => buildMarkerFilterSummary(filters, categories, tags), [categories, filters, tags]);
+  const hasActiveFilters = hasActiveMarkerFilters(filters);
   const totalHeight = filteredMarkers.length * rowHeight;
   const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
   const endIndex = Math.min(filteredMarkers.length, Math.ceil((scrollTop + viewportHeight) / rowHeight) + overscan);
@@ -83,15 +91,23 @@ export function MarkerListPanel({
       <header className="border-b border-border p-4">
         <div className="mb-3 flex items-center justify-between">
           <div>
-            <p className="text-xs text-muted-foreground">点位</p>
+            <p className="text-xs font-medium text-slate-600">点位</p>
             <h3 className="text-base font-semibold">点位列表</h3>
           </div>
           <ListFilter className="size-4 text-muted-foreground" />
         </div>
 
-        <div className="grid gap-2">
-          <label className="text-xs font-medium text-muted-foreground" htmlFor="marker-category-filter">
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-md bg-slate-50 px-3 py-2 text-xs">
+          <span className={hasActiveFilters ? "font-medium text-primary" : "font-medium text-slate-600"}>{filterSummary}</span>
+          <span className="shrink-0 text-slate-500">{isLoading ? "读取中" : `${filteredMarkers.length} / ${markers.length}`}</span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <label className="text-xs font-medium text-slate-600" htmlFor="marker-category-filter">
             分类
+          </label>
+          <label className="text-xs font-medium text-slate-600" htmlFor="marker-tag-filter">
+            标签
           </label>
           <select
             id="marker-category-filter"
@@ -107,10 +123,6 @@ export function MarkerListPanel({
               </option>
             ))}
           </select>
-
-          <label className="text-xs font-medium text-muted-foreground" htmlFor="marker-tag-filter">
-            标签
-          </label>
           <select
             id="marker-tag-filter"
             className="h-9 rounded-md border border-input bg-background px-2 text-sm outline-none focus:border-primary"
@@ -125,7 +137,7 @@ export function MarkerListPanel({
             ))}
           </select>
 
-          <div className="flex items-center gap-2">
+          <div className="col-span-2 flex items-center gap-2">
             <SlidersHorizontal className="size-4 text-muted-foreground" />
             <select
               className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm outline-none focus:border-primary"
@@ -140,8 +152,8 @@ export function MarkerListPanel({
         </div>
 
         <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-          <span>{isLoading ? "正在读取" : `${filteredMarkers.length} / ${markers.length} 个点位`}</span>
-          <Filter className="size-4" />
+          <span>{hasActiveFilters ? "已应用筛选" : "默认筛选"}</span>
+          <Filter className={`size-4 ${hasActiveFilters ? "text-primary" : ""}`} />
         </div>
       </header>
 

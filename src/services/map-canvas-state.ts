@@ -2,6 +2,8 @@ export type MapCanvasStatus = "missing-ak" | "loading" | "ready" | "failed";
 
 export type MapCanvasActionId = "retry" | "settings" | "logs";
 
+export type MapLocateStatus = "idle" | "loading" | "success" | "failed";
+
 export interface MapCanvasAction {
   id: MapCanvasActionId;
   label: string;
@@ -48,4 +50,17 @@ export function resolveMapCanvasOverlay(status: MapCanvasStatus, message?: strin
 
 export function isMapZoomControlEnabled(status: MapCanvasStatus) {
   return status === "ready";
+}
+
+export function resolveLocateStatusMessage(status: MapLocateStatus, coordinate?: { lng: number; lat: number } | null, errorMessage?: string) {
+  switch (status) {
+    case "loading":
+      return "正在定位...";
+    case "success":
+      return coordinate ? `已定位到当前位置：${coordinate.lng.toFixed(5)}, ${coordinate.lat.toFixed(5)}` : "已定位到当前位置。";
+    case "failed":
+      return `${errorMessage || "定位失败"}，可继续手动操作地图。`;
+    case "idle":
+      return null;
+  }
 }

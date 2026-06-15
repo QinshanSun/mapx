@@ -113,8 +113,8 @@ export function MarkerOverviewPanel({
 
 function OverviewStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-border bg-slate-50 p-3">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
+    <div className="rounded-md bg-slate-50 p-3">
+      <dt className="text-xs font-medium text-slate-600">{label}</dt>
       <dd className="mt-1 text-lg font-semibold leading-6">{value}</dd>
     </div>
   );

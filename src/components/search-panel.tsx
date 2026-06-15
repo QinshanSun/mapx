@@ -23,6 +23,7 @@ interface SearchPanelProps {
   mapAvailability: MapCanvasAvailability;
   selectedMarkerId: string | null;
   selectedPoiId: string | null;
+  focusRequestKey: number;
   onSearchCityChange: (city: string) => Promise<void>;
   onSelectMarker: (marker: MarkerRecord) => void;
   onPreviewPoi: (poi: BaiduPoiResult) => void;
@@ -46,6 +47,7 @@ export function SearchPanel({
   mapAvailability,
   selectedMarkerId,
   selectedPoiId,
+  focusRequestKey,
   onSearchCityChange,
   onSelectMarker,
   onPreviewPoi,
@@ -84,7 +86,7 @@ export function SearchPanel({
 
   useEffect(() => {
     inputRef.current?.focus();
-  }, []);
+  }, [focusRequestKey]);
 
   useEffect(() => {
     let isActive = true;

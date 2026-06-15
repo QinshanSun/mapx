@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { filterAndSortMarkers, type MarkerListFilters } from "@/services/marker-list";
+import { buildMarkerFilterSummary, filterAndSortMarkers, hasActiveMarkerFilters, type MarkerListFilters } from "@/services/marker-list";
 import type { MarkerRecord } from "@/types/marker";
 
 const baseFilters: MarkerListFilters = {
@@ -56,6 +56,18 @@ describe("marker list filters", () => {
       "甲",
       "乙",
     ]);
+  });
+
+  it("builds a compact summary for the visible filter state", () => {
+    expect(hasActiveMarkerFilters(baseFilters)).toBe(false);
+    expect(buildMarkerFilterSummary(baseFilters, [], [])).toBe("全部点位 · 最近更新");
+
+    const filters = { categoryId: "category-a", tagId: "tag-a", sortKey: "nameAsc" } as const;
+
+    expect(hasActiveMarkerFilters(filters)).toBe(true);
+    expect(
+      buildMarkerFilterSummary(filters, [{ id: "category-a", name: "商圈" }], [{ id: "tag-a", name: "重点" }]),
+    ).toBe("商圈 · 重点 · 名称 A-Z");
   });
 });
 
