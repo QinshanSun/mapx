@@ -168,7 +168,5 @@ jobs:
           releaseDraft: false
           prerelease: true
           generateReleaseNotes: true
-          uploadUpdaterJson: false
-          uploadUpdaterSignatures: false
           args: --ci --no-sign --bundles ${{ matrix.platform.bundles }}
           retryAttempts: 2
