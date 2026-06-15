@@ -58,6 +58,12 @@ try {
     await clickSubmitInFormWithPlaceholder(cdp, "新项目名称");
     await waitForText(cdp, "Smoke 项目");
 
+    await clickButtonByText(cdp, "设置");
+    await waitForText(cdp, "本地目录");
+    await waitForText(cdp, "备份目录：浏览器预览模式");
+    await waitForText(cdp, "最近备份：暂无备份");
+    await waitForText(cdp, "打开备份目录");
+
     await clickButtonByText(cdp, "中心点");
     await waitForText(cdp, "待保存点位");
     await waitForText(cdp, "新建点位");
@@ -67,7 +73,13 @@ try {
         {
           status: "passed",
           appUrl: APP_URL,
-          checks: ["app-started", "missing-ak-settings-entry", "project-created", "marker-create-form-opened"],
+          checks: [
+            "app-started",
+            "missing-ak-settings-entry",
+            "project-created",
+            "backup-settings-visible",
+            "marker-create-form-opened",
+          ],
         },
         null,
         2,

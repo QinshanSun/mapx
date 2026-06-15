@@ -8,6 +8,8 @@ use sqlx::{
 };
 use tauri::Manager;
 
+use crate::backup;
+
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 const APP_DATA_DIR_NAME: &str = "MapX";
@@ -78,6 +80,10 @@ pub async fn bootstrap_database_in(base_data_dir: PathBuf) -> Result<Bootstrappe
         .run(&pool)
         .await
         .map_err(|_| "MapX 数据库迁移失败。".to_string())?;
+
+    backup::ensure_daily_backup(&pool, database_path.clone())
+        .await
+        .map_err(|_| "MapX 数据库备份失败。".to_string())?;
 
     Ok(BootstrappedDatabase {
         database_path,

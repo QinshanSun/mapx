@@ -4,6 +4,7 @@ import { normalizeCityName } from "@/data/china-cities";
 import { callCommand } from "@/services/tauri-client";
 import type {
   AppInfo,
+  BackupInfo,
   CompleteFirstLaunchInput,
   FirstLaunchFormValues,
   FirstLaunchSettings,
@@ -75,12 +76,32 @@ export function getAppInfo() {
   return callCommand<AppInfo>("get_app_info");
 }
 
+export function getBackupInfo() {
+  if (!isTauri()) {
+    return Promise.resolve<BackupInfo>({
+      backupDirectory: "浏览器预览模式",
+      latestBackupAt: null,
+      latestBackupPath: null,
+    });
+  }
+
+  return callCommand<BackupInfo>("get_backup_info");
+}
+
 export function openDataDirectory() {
   if (!isTauri()) {
     return Promise.resolve<void>(undefined);
   }
 
   return callCommand<void>("open_data_directory");
+}
+
+export function openBackupDirectory() {
+  if (!isTauri()) {
+    return Promise.resolve<void>(undefined);
+  }
+
+  return callCommand<void>("open_backup_directory");
 }
 
 export function openLogDirectory() {

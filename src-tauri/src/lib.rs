@@ -1,3 +1,4 @@
+mod backup;
 mod cities;
 mod db;
 mod errors;
@@ -93,7 +94,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             settings::complete_first_launch,
             settings::get_app_info,
+            settings::get_backup_info,
             settings::get_first_launch_settings,
+            settings::open_backup_directory,
             settings::open_data_directory,
             settings::open_log_directory,
             settings::update_baidu_ak,

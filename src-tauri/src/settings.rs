@@ -5,6 +5,7 @@ use sqlx::{Row, SqlitePool};
 use tauri::Manager;
 
 use crate::{
+    backup::{self, BackupInfo},
     cities::{validate_city_name, DEFAULT_CITY},
     db::AppRuntimeState,
     errors::AppError,
@@ -110,11 +111,33 @@ pub fn get_app_info(state: tauri::State<'_, AppRuntimeState>) -> Result<AppInfo,
 }
 
 #[tauri::command]
+pub async fn get_backup_info(
+    state: tauri::State<'_, AppRuntimeState>,
+) -> Result<BackupInfo, AppError> {
+    let pool = require_pool(&state)?;
+    let database_path = PathBuf::from(database_path_from_state(&state)?);
+
+    backup::load_backup_info(&pool, database_path)
+        .await
+        .map_err(|_| AppError::db())
+}
+
+#[tauri::command]
 pub fn open_data_directory(state: tauri::State<'_, AppRuntimeState>) -> Result<(), AppError> {
     let database_path = database_path_from_state(&state)?;
     let data_directory = data_directory_from_database_path(&database_path)?;
 
     open_path(&data_directory)
+}
+
+#[tauri::command]
+pub fn open_backup_directory(state: tauri::State<'_, AppRuntimeState>) -> Result<(), AppError> {
+    let database_path = PathBuf::from(database_path_from_state(&state)?);
+    let backup_directory =
+        backup::backup_directory_from_database_path(&database_path).map_err(|_| AppError::db())?;
+
+    fs::create_dir_all(&backup_directory).map_err(|_| AppError::db())?;
+    open_path(&backup_directory)
 }
 
 #[tauri::command]

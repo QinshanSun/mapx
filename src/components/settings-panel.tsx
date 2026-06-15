@@ -6,8 +6,15 @@ import { TagManagementPanel } from "@/components/tag-management-panel";
 import { Button } from "@/components/ui/button";
 import { CHINA_CITIES, normalizeCityName } from "@/data/china-cities";
 import { buildBaiduAkOriginGuidance } from "@/services/map-runtime";
-import { getAppInfo, openDataDirectory, updateBaiduAk, updateDefaultCity } from "@/services/settings-service";
-import type { AppInfo, FirstLaunchSettings } from "@/types/settings";
+import {
+  getAppInfo,
+  getBackupInfo,
+  openBackupDirectory,
+  openDataDirectory,
+  updateBaiduAk,
+  updateDefaultCity,
+} from "@/services/settings-service";
+import type { AppInfo, BackupInfo, FirstLaunchSettings } from "@/types/settings";
 
 interface SettingsPanelProps {
   settings: FirstLaunchSettings;
@@ -21,9 +28,11 @@ export function SettingsPanel({ settings, currentProjectId, onChange, onError }:
   const [selectedCity, setSelectedCity] = useState(normalizeCityName(settings.defaultCity));
   const [akDraft, setAkDraft] = useState(settings.baiduAk ?? "");
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
+  const [backupInfo, setBackupInfo] = useState<BackupInfo | null>(null);
   const [isCitySaving, setIsCitySaving] = useState(false);
   const [isAkSaving, setIsAkSaving] = useState(false);
   const [isOpeningDataDirectory, setIsOpeningDataDirectory] = useState(false);
+  const [isOpeningBackupDirectory, setIsOpeningBackupDirectory] = useState(false);
   const originGuidance = buildBaiduAkOriginGuidance();
   const currentCity = CHINA_CITIES.find((city) => city.name === selectedCity) ?? CHINA_CITIES[0];
   const hasChanges = selectedCity !== normalizeCityName(settings.defaultCity);
@@ -32,10 +41,11 @@ export function SettingsPanel({ settings, currentProjectId, onChange, onError }:
   useEffect(() => {
     let isActive = true;
 
-    getAppInfo()
-      .then((nextInfo) => {
+    Promise.all([getAppInfo(), getBackupInfo()])
+      .then(([nextAppInfo, nextBackupInfo]) => {
         if (isActive) {
-          setAppInfo(nextInfo);
+          setAppInfo(nextAppInfo);
+          setBackupInfo(nextBackupInfo);
         }
       })
       .catch(onError);
@@ -80,6 +90,17 @@ export function SettingsPanel({ settings, currentProjectId, onChange, onError }:
       onError(error);
     } finally {
       setIsOpeningDataDirectory(false);
+    }
+  }
+
+  async function openBackupDir() {
+    setIsOpeningBackupDirectory(true);
+    try {
+      await openBackupDirectory();
+    } catch (error) {
+      onError(error);
+    } finally {
+      setIsOpeningBackupDirectory(false);
     }
   }
 
@@ -175,10 +196,18 @@ export function SettingsPanel({ settings, currentProjectId, onChange, onError }:
         </div>
         <div className="space-y-2 text-xs leading-5 text-muted-foreground">
           <p className="break-all">数据目录：{appInfo?.dataDirectory ?? "正在读取"}</p>
-          <p>备份目录：后续自动备份任务接入</p>
+          <p className="break-all">备份目录：{backupInfo?.backupDirectory ?? "正在读取"}</p>
+          <p>最近备份：{backupInfo?.latestBackupAt ?? "暂无备份"}</p>
+          {backupInfo?.latestBackupPath ? <p className="break-all">备份文件：{backupInfo.latestBackupPath}</p> : null}
         </div>
         <div className="mt-4 flex justify-end gap-2">
-          <Button type="button" variant="outline" size="sm" disabled>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isOpeningBackupDirectory || !backupInfo}
+            onClick={openBackupDir}
+          >
             <FolderOpen />
             打开备份目录
           </Button>

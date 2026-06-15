@@ -11,6 +11,12 @@ export interface AppInfo {
   databasePath: string;
 }
 
+export interface BackupInfo {
+  backupDirectory: string;
+  latestBackupAt: string | null;
+  latestBackupPath: string | null;
+}
+
 export interface FirstLaunchFormValues {
   defaultCity: string;
   baiduAk: string;
