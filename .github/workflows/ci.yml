@@ -36,6 +36,9 @@ jobs:
       - name: Test
         run: npm run test
 
+      - name: E2E smoke
+        run: npm run smoke:e2e
+
   rust:
     name: Rust checks
     runs-on: ubuntu-latest
