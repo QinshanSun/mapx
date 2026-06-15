@@ -8,6 +8,7 @@ See the V1 product and technical specification:
 
 - [docs/product-spec-v1.md](docs/product-spec-v1.md)
 - [docs/features-v1.md](docs/features-v1.md)
+- [docs/release.md](docs/release.md)
 
 ## Current Status
 
@@ -51,6 +52,7 @@ Implemented foundation:
 - Dirty-state guard with custom save/discard/cancel confirmation before conflicting marker actions
 - Right-side project overview when no marker is selected, with counts, recent markers, and quick actions
 - Basic scripts for development, typechecking, linting, frontend tests, frontend build, and Tauri build
+- GitHub Actions release workflow for unsigned macOS `.dmg` and Windows `.msi` pre-releases from `vX.Y.Z` tags
 
 Last verified locally:
 

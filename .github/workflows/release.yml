@@ -1,0 +1,174 @@
+name: Release
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to build, for example v0.1.0"
+        required: true
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  validate:
+    name: Validate release version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref }}
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}"
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify version files match tag
+        run: node tools/verify-release-version.mjs "${{ steps.meta.outputs.tag }}"
+
+  frontend-gate:
+    name: Frontend release gate
+    runs-on: ubuntu-latest
+    needs: validate
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test
+
+  rust-gate:
+    name: Rust release gate
+    runs-on: ubuntu-latest
+    needs: validate
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Rustfmt
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: Test
+        working-directory: src-tauri
+        run: cargo test
+
+  build-release:
+    name: Build release (${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.runner }}
+    needs:
+      - validate
+      - frontend-gate
+      - rust-gate
+
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        platform:
+          - name: macOS
+            runner: macos-latest
+            bundles: dmg
+          - name: Windows
+            runner: windows-latest
+            bundles: msi
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and upload release bundle
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ needs.validate.outputs.tag }}
+          releaseName: MapX ${{ needs.validate.outputs.tag }}
+          releaseBody: |
+            ## 安装提醒
+
+            这是 MapX 的未签名测试版，需要手动下载安装。
+
+            - macOS 可能提示无法验证开发者，需要在系统设置中允许打开。
+            - Windows 可能出现 SmartScreen 提示，需要用户手动确认继续安装。
+            - 百度地图能力需要在应用设置中配置自己的百度地图开放平台 AK。
+            - MapX 数据保存在系统 app data 目录；升级前建议确认自动备份目录中已有近期备份。
+          releaseDraft: false
+          prerelease: true
+          generateReleaseNotes: true
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+          args: --ci --no-sign --bundles ${{ matrix.platform.bundles }}
+          retryAttempts: 2
