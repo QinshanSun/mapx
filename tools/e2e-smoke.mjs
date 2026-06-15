@@ -10,10 +10,20 @@ const APP_PORT = Number(process.env.MAPX_SMOKE_PORT ?? 1431);
 const DEBUG_PORT = Number(process.env.MAPX_SMOKE_DEBUG_PORT ?? 9331);
 const APP_URL = `http://127.0.0.1:${APP_PORT}`;
 const DEFAULT_TIMEOUT_MS = 30_000;
+const OVERALL_TIMEOUT_MS = Number(process.env.MAPX_SMOKE_TIMEOUT_MS ?? 60_000);
 
 const chromePath = findChromePath();
 const userDataDir = mkdtempSync(path.join(tmpdir(), "mapx-smoke-chrome-"));
 const processes = [];
+
+const watchdog = setTimeout(() => {
+  process.stderr.write(`[smoke] timed out after ${OVERALL_TIMEOUT_MS}ms\n`);
+  for (const child of processes.reverse()) {
+    terminateProcess(child, "SIGKILL");
+  }
+  process.exit(124);
+}, OVERALL_TIMEOUT_MS);
+watchdog.unref();
 
 try {
   const vite = spawnProcess("npm", ["run", "dev", "--", "--host", "127.0.0.1", "--port", String(APP_PORT), "--strictPort"], {
@@ -64,12 +74,13 @@ try {
       ),
     );
   } finally {
-    cdp.close();
+    await cdp.close();
   }
 } finally {
+  clearTimeout(watchdog);
   for (const child of processes.reverse()) {
     if (child.exitCode === null) {
-      child.kill("SIGTERM");
+      terminateProcess(child, "SIGTERM");
       await waitForProcessExit(child);
     }
   }
@@ -112,6 +123,7 @@ function spawnProcess(command, args, env = {}) {
   const child = spawn(command, args, {
     env: { ...process.env, ...env },
     stdio: ["ignore", "pipe", "pipe"],
+    detached: process.platform !== "win32",
     shell: false,
   });
 
@@ -126,6 +138,23 @@ function spawnProcess(command, args, env = {}) {
   return child;
 }
 
+function terminateProcess(child, signal) {
+  if (child.exitCode !== null) {
+    return;
+  }
+
+  if (process.platform !== "win32" && child.pid) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {
+      // Fall back to killing the direct child below.
+    }
+  }
+
+  child.kill(signal);
+}
+
 function waitForProcessExit(child, timeoutMs = 5000) {
   if (child.exitCode !== null) {
     return Promise.resolve();
@@ -133,7 +162,7 @@ function waitForProcessExit(child, timeoutMs = 5000) {
 
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
-      child.kill("SIGKILL");
+      terminateProcess(child, "SIGKILL");
       resolve();
     }, timeoutMs);
 
@@ -227,7 +256,23 @@ function connectCdp(webSocketUrl) {
           });
         },
         close() {
-          socket.close();
+          return new Promise((resolveClose) => {
+            if (socket.readyState === WebSocket.CLOSED) {
+              resolveClose();
+              return;
+            }
+
+            const timeout = setTimeout(resolveClose, 1000);
+            socket.addEventListener(
+              "close",
+              () => {
+                clearTimeout(timeout);
+                resolveClose();
+              },
+              { once: true },
+            );
+            socket.close();
+          });
         },
       });
     });
