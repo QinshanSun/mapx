@@ -41,12 +41,16 @@ interface BaiduMapInstance {
 }
 
 interface BaiduMapClickEvent {
-  domEvent?: {
-    preventDefault?: () => void;
-    stopPropagation?: () => void;
-  };
+  domEvent?: BaiduMapDomEvent;
   latlng?: BaiduPoint;
   point?: BaiduPoint;
+}
+
+interface BaiduMapDomEvent {
+  clientX?: number;
+  clientY?: number;
+  preventDefault?: () => void;
+  stopPropagation?: () => void;
 }
 
 interface BaiduGeolocationResult {
@@ -472,7 +476,9 @@ export class BaiduMapProvider implements MapProvider {
   }
 
   private readDomEventCoordinate(event: BaiduMapClickEvent | MouseEvent | undefined): MapCoordinate | null {
-    if (!this.map || !this.container || !isMouseEventLike(event)) {
+    const domEvent = readMouseEventLike(event);
+
+    if (!this.map || !this.container || !domEvent) {
       return null;
     }
 
@@ -482,7 +488,7 @@ export class BaiduMapProvider implements MapProvider {
     }
 
     const bounds = this.container.getBoundingClientRect();
-    const pixel = new runtime.api.Pixel(event.clientX - bounds.left, event.clientY - bounds.top);
+    const pixel = new runtime.api.Pixel(domEvent.clientX - bounds.left, domEvent.clientY - bounds.top);
     const point = this.map.pixelToPoint(pixel);
     return pointToCoordinate(point);
   }
@@ -962,8 +968,20 @@ function pointToCoordinate(point: BaiduPoint): MapCoordinate {
   };
 }
 
-function isMouseEventLike(event: BaiduMapClickEvent | MouseEvent | undefined): event is MouseEvent {
-  return Boolean(event && "clientX" in event && "clientY" in event);
+function readMouseEventLike(event: BaiduMapClickEvent | MouseEvent | undefined): MouseEvent | null {
+  if (isMouseEventLike(event)) {
+    return event;
+  }
+
+  if (isMouseEventLike(event?.domEvent)) {
+    return event.domEvent;
+  }
+
+  return null;
+}
+
+function isMouseEventLike(event: BaiduMapClickEvent | BaiduMapDomEvent | MouseEvent | undefined): event is MouseEvent {
+  return Boolean(event && "clientX" in event && "clientY" in event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY));
 }
 
 function shouldIgnoreDuplicateMeasurementPoint(session: DistanceMeasurementSession, coordinate: MapCoordinate) {
