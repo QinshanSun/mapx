@@ -458,6 +458,44 @@ describe("baidu map provider", () => {
     });
   });
 
+  it("draws a live preview segment from the last measurement point to the cursor", async () => {
+    const fake = createFakeApi();
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+    await provider.startDistanceMeasurement({});
+
+    fake.instances[0].triggerClick({ latlng: { lng: 121.48, lat: 31.24 } });
+    fake.instances[0].triggerMouseMove({ latlng: { lng: 121.485, lat: 31.245 } });
+
+    expect(fake.polylines[fake.polylines.length - 1]).toMatchObject({
+      points: [
+        { lng: 121.48, lat: 31.24 },
+        { lng: 121.485, lat: 31.245 },
+      ],
+      options: {
+        strokeColor: "#2563eb",
+        strokeOpacity: 0.46,
+        strokeStyle: "dashed",
+        strokeWeight: 2,
+      },
+    });
+
+    fake.instances[0].triggerMouseMove({ latlng: { lng: 121.49, lat: 31.25 } });
+    expect(fake.instances[0].removeOverlay).toHaveBeenCalledWith(fake.polylines[fake.polylines.length - 2]);
+    expect(fake.polylines[fake.polylines.length - 1].points).toEqual([
+      { lng: 121.48, lat: 31.24 },
+      { lng: 121.49, lat: 31.25 },
+    ]);
+
+    const latestPreviewLine = fake.polylines[fake.polylines.length - 1];
+    fake.instances[0].triggerClick({ latlng: { lng: 121.49, lat: 31.25 } });
+    expect(fake.instances[0].removeOverlay).toHaveBeenCalledWith(latestPreviewLine);
+  });
+
   it("renders saved measurements as weak map overlays and supports selecting them", async () => {
     const fake = createFakeApi();
     const onMeasurementClick = vi.fn();
@@ -733,6 +771,7 @@ class FakeMap {
   private center = { lng: 0, lat: 0 };
   private clickHandlers: Array<(event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void> = [];
   private doubleClickHandlers: Array<(event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void> = [];
+  private mouseMoveHandlers: Array<(event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void> = [];
   private zoomEndHandler: (() => void) | null = null;
   private zoom = 0;
   readonly addEventListener = vi.fn((eventName: string, handler: (event?: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void) => {
@@ -742,6 +781,10 @@ class FakeMap {
 
     if (eventName === "dblclick") {
       this.doubleClickHandlers.push(handler as (event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void);
+    }
+
+    if (eventName === "mousemove") {
+      this.mouseMoveHandlers.push(handler as (event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void);
     }
 
     if (eventName === "zoomend") {
@@ -763,6 +806,10 @@ class FakeMap {
 
     if (eventName === "dblclick") {
       this.doubleClickHandlers = this.doubleClickHandlers.filter((currentHandler) => currentHandler !== handler);
+    }
+
+    if (eventName === "mousemove") {
+      this.mouseMoveHandlers = this.mouseMoveHandlers.filter((currentHandler) => currentHandler !== handler);
     }
   });
   readonly setMapType = vi.fn();
@@ -789,6 +836,12 @@ class FakeMap {
 
   triggerDoubleClick(event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) {
     for (const handler of this.doubleClickHandlers) {
+      handler(event);
+    }
+  }
+
+  triggerMouseMove(event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) {
+    for (const handler of this.mouseMoveHandlers) {
       handler(event);
     }
   }

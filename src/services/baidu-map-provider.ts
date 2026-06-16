@@ -111,12 +111,15 @@ interface DistanceMeasurementSession {
   doubleClickHandler: (event?: BaiduMapClickEvent | MouseEvent) => void;
   domClickHandler: ((event: MouseEvent) => void) | null;
   domDoubleClickHandler: ((event: MouseEvent) => void) | null;
+  domMouseMoveHandler: ((event: MouseEvent) => void) | null;
   handlers: MapDistanceMeasurementHandlers;
   isDrawing: boolean;
   lastAcceptedCoordinate: MapCoordinate | null;
   lastAcceptedAt: number;
+  mouseMoveHandler: (event?: BaiduMapClickEvent | MouseEvent) => void;
   overlays: unknown[];
   points: BaiduPoint[];
+  previewOverlay: unknown | null;
   totalDistanceMeters: number;
 }
 
@@ -348,12 +351,15 @@ export class BaiduMapProvider implements MapProvider {
       doubleClickHandler: (event) => this.finishDistanceMeasurement(event),
       domClickHandler: null,
       domDoubleClickHandler: null,
+      domMouseMoveHandler: null,
       handlers,
       isDrawing: true,
       lastAcceptedCoordinate: null,
       lastAcceptedAt: 0,
+      mouseMoveHandler: (event) => this.renderDistanceMeasurementPreview(event),
       overlays: [],
       points: [],
+      previewOverlay: null,
       totalDistanceMeters: 0,
     };
 
@@ -361,6 +367,7 @@ export class BaiduMapProvider implements MapProvider {
     this.map.disableDoubleClickZoom?.();
     this.map.addEventListener?.("click", session.clickHandler);
     this.map.addEventListener?.("dblclick", session.doubleClickHandler);
+    this.map.addEventListener?.("mousemove", session.mouseMoveHandler);
     this.addDistanceMeasurementDomFallback(session);
     return { status: "ready" };
   }
@@ -416,6 +423,7 @@ export class BaiduMapProvider implements MapProvider {
     }
 
     stopBaiduDomEvent(event);
+    this.clearDistanceMeasurementPreviewOverlay(session);
     session.lastAcceptedCoordinate = coordinate;
     session.lastAcceptedAt = Date.now();
     const point = new runtime.api.Point(coordinate.lng, coordinate.lat);
@@ -444,6 +452,7 @@ export class BaiduMapProvider implements MapProvider {
     stopBaiduDomEvent(event);
     session.isDrawing = false;
     this.removeDistanceMeasurementListeners(session);
+    this.clearDistanceMeasurementPreviewOverlay(session);
     this.map?.enableDoubleClickZoom?.();
 
     if (session.points.length < 2) {
@@ -485,8 +494,32 @@ export class BaiduMapProvider implements MapProvider {
 
     session.domClickHandler = (event) => this.addDistanceMeasurementPoint(event);
     session.domDoubleClickHandler = (event) => this.finishDistanceMeasurement(event);
+    session.domMouseMoveHandler = (event) => this.renderDistanceMeasurementPreview(event);
     this.container.addEventListener("click", session.domClickHandler);
     this.container.addEventListener("dblclick", session.domDoubleClickHandler);
+    this.container.addEventListener("mousemove", session.domMouseMoveHandler);
+  }
+
+  private renderDistanceMeasurementPreview(event: BaiduMapClickEvent | MouseEvent | undefined) {
+    const session = this.distanceMeasurementSession;
+    const runtime = this.getRuntime();
+    const coordinate = this.readDistanceMeasurementCoordinate(event);
+
+    if (!session?.isDrawing || !this.map || !runtime?.api.Polyline || !coordinate || session.points.length === 0) {
+      return;
+    }
+
+    this.clearDistanceMeasurementPreviewOverlay(session);
+    const lastPoint = session.points[session.points.length - 1];
+    const previewPoint = new runtime.api.Point(coordinate.lng, coordinate.lat);
+    const previewLine = new runtime.api.Polyline([lastPoint, previewPoint], {
+      strokeColor: "#2563eb",
+      strokeOpacity: 0.46,
+      strokeStyle: "dashed",
+      strokeWeight: 2,
+    });
+    this.map.addOverlay(previewLine);
+    session.previewOverlay = previewLine;
   }
 
   private renderDistanceMeasurement(session: DistanceMeasurementSession) {
@@ -540,6 +573,8 @@ export class BaiduMapProvider implements MapProvider {
   }
 
   private clearDistanceMeasurementOverlays(session: DistanceMeasurementSession) {
+    this.clearDistanceMeasurementPreviewOverlay(session);
+
     if (this.map) {
       for (const overlay of session.overlays) {
         this.map.removeOverlay(overlay);
@@ -549,14 +584,26 @@ export class BaiduMapProvider implements MapProvider {
     session.overlays = [];
   }
 
+  private clearDistanceMeasurementPreviewOverlay(session: DistanceMeasurementSession) {
+    if (this.map && session.previewOverlay) {
+      this.map.removeOverlay(session.previewOverlay);
+    }
+
+    session.previewOverlay = null;
+  }
+
   private removeDistanceMeasurementListeners(session: DistanceMeasurementSession) {
     this.map?.removeEventListener?.("click", session.clickHandler);
     this.map?.removeEventListener?.("dblclick", session.doubleClickHandler);
+    this.map?.removeEventListener?.("mousemove", session.mouseMoveHandler);
     if (this.container && session.domClickHandler) {
       this.container.removeEventListener("click", session.domClickHandler);
     }
     if (this.container && session.domDoubleClickHandler) {
       this.container.removeEventListener("dblclick", session.domDoubleClickHandler);
+    }
+    if (this.container && session.domMouseMoveHandler) {
+      this.container.removeEventListener("mousemove", session.domMouseMoveHandler);
     }
   }
 

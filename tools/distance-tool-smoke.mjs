@@ -98,6 +98,9 @@ try {
 
     await delay(2000);
     await dispatchClick(cdp, 350, 330);
+    await dispatchMouseMove(cdp, 410, 350);
+    await waitForExpression(cdp, "Boolean(window.__mapxDistanceSmoke && window.__mapxDistanceSmoke.provider.distanceMeasurementSession && window.__mapxDistanceSmoke.provider.distanceMeasurementSession.previewOverlay)", DEFAULT_TIMEOUT_MS, "MapX measurement preview line");
+    const previewAfterFirstPoint = await readSmokeState(cdp);
     await dispatchClick(cdp, 470, 330);
     await waitForExpression(cdp, "window.__mapxDistanceSmoke && window.__mapxDistanceSmoke.state.addedPoints.length >= 2", DEFAULT_TIMEOUT_MS, "MapX measurement cancel points");
     const beforeCancel = await readSmokeState(cdp);
@@ -167,6 +170,7 @@ try {
           appUrl: APP_URL,
           akSource: "BAIDU_MAP_AK (redacted)",
           setup: setup.value,
+          previewAfterFirstPoint,
           beforeCancel,
           afterCancel,
           beforeStop,
@@ -174,6 +178,7 @@ try {
           destroy: destroy.value,
           conclusion: {
             canStartProviderMeasurement: setup.value?.start?.status === "ready",
+            canPreviewNextSegment: Boolean(previewAfterFirstPoint.previewOverlayActive),
             stopDuringDrawingRemovedListeners: afterCancel.addedPointCount === beforeCancel.addedPointCount,
             canCapturePointsAndDistance: Boolean(beforeStop.completed && beforeStop.completed.points.length >= 2 && beforeStop.completed.totalDistanceMeters > 0),
             destroyDidNotThrow: destroy.value.ok,
@@ -208,6 +213,7 @@ async function readSmokeState(cdp) {
         cleared: state.cleared,
         completedSet: state.completedSet,
         completed: state.completed,
+        previewOverlayActive: Boolean(window.__mapxDistanceSmoke.provider.distanceMeasurementSession && window.__mapxDistanceSmoke.provider.distanceMeasurementSession.previewOverlay),
         domEvents: state.domEvents,
         mapDomNodeCount: map ? map.querySelectorAll('*').length : 0,
         bodyText: document.body.innerText.slice(0, 300),
@@ -216,6 +222,11 @@ async function readSmokeState(cdp) {
   );
 
   return result.value;
+}
+
+async function dispatchMouseMove(cdp, x, y) {
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+  await delay(250);
 }
 
 async function dispatchClick(cdp, x, y) {
