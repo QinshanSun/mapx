@@ -1,16 +1,28 @@
 import { adjustMapViewZoom } from "@/services/map-provider";
-import type { MapCoordinate, MapMarkerItem, MapPoiPreview, MapProvider, MapViewState } from "@/services/map-provider";
+import type {
+  MapCoordinate,
+  MapDistanceMeasurementHandlers,
+  MapMeasurementItem,
+  MapMarkerItem,
+  MapPoiPreview,
+  MapProvider,
+  MapViewState,
+} from "@/services/map-provider";
 import type { MapLayer } from "@/types/project";
 
 export class MockMapProvider implements MapProvider {
   readonly calls: string[] = [];
   markers: MapMarkerItem[] = [];
+  measurements: MapMeasurementItem[] = [];
   poiPreview: MapPoiPreview | null = null;
+  selectedMeasurementId: string | null = null;
   selectedMarkerId: string | null = null;
   draggableMarkerId: string | null = null;
   view: MapViewState | null = null;
   layer: MapLayer = "normal";
   private mapClickHandler: ((coordinate: MapCoordinate) => void) | null = null;
+  private measurementClickHandler: ((measurementId: string) => void) | null = null;
+  private measurementHandlers: MapDistanceMeasurementHandlers | null = null;
   private markerClickHandler: ((markerId: string) => void) | null = null;
   private markerDragHandler: ((markerId: string, coordinate: MapCoordinate) => void) | null = null;
 
@@ -65,6 +77,14 @@ export class MockMapProvider implements MapProvider {
     this.markers = markers;
   }
 
+  setMeasurements(measurements: MapMeasurementItem[]) {
+    this.measurements = measurements;
+  }
+
+  setSelectedMeasurement(measurementId: string | null) {
+    this.selectedMeasurementId = measurementId;
+  }
+
   setSelectedMarker(markerId: string | null) {
     this.selectedMarkerId = markerId;
   }
@@ -77,8 +97,23 @@ export class MockMapProvider implements MapProvider {
     this.poiPreview = preview;
   }
 
+  async startDistanceMeasurement(handlers: MapDistanceMeasurementHandlers) {
+    this.calls.push("startDistanceMeasurement");
+    this.measurementHandlers = handlers;
+    return { status: "ready" as const };
+  }
+
+  stopDistanceMeasurement() {
+    this.calls.push("stopDistanceMeasurement");
+    this.measurementHandlers = null;
+  }
+
   setMarkerClickHandler(handler: ((markerId: string) => void) | null) {
     this.markerClickHandler = handler;
+  }
+
+  setMeasurementClickHandler(handler: ((measurementId: string) => void) | null) {
+    this.measurementClickHandler = handler;
   }
 
   setMarkerDragHandler(handler: ((markerId: string, coordinate: MapCoordinate) => void) | null) {
@@ -91,6 +126,14 @@ export class MockMapProvider implements MapProvider {
 
   triggerMapClick(coordinate: MapCoordinate) {
     this.mapClickHandler?.(coordinate);
+  }
+
+  triggerDistanceMeasurementCompleted(points: MapCoordinate[], totalDistanceMeters: number) {
+    this.measurementHandlers?.onCompleted?.({ points, totalDistanceMeters });
+  }
+
+  triggerMeasurementClick(measurementId: string) {
+    this.measurementClickHandler?.(measurementId);
   }
 
   triggerMarkerClick(markerId: string) {

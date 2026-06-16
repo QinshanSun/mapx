@@ -367,6 +367,137 @@ describe("baidu map provider", () => {
     expect(fake.instances[0].removeOverlay).toHaveBeenCalledTimes(2);
   });
 
+  it("draws distance measurements inside the provider boundary and emits plain measurement data", async () => {
+    const fake = createFakeApi();
+    const onPointAdded = vi.fn();
+    const onCompleted = vi.fn();
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+    await expect(provider.startDistanceMeasurement({ onPointAdded, onCompleted })).resolves.toEqual({ status: "ready" });
+
+    expect(fake.instances[0].disableDoubleClickZoom).toHaveBeenCalledTimes(1);
+
+    fake.instances[0].triggerClick({ latlng: { lng: 121.48, lat: 31.24 } });
+    fake.instances[0].triggerClick({ latlng: { lng: 121.49, lat: 31.25 } });
+    fake.instances[0].triggerDoubleClick({ latlng: { lng: 121.49, lat: 31.25 } });
+
+    expect(onPointAdded).toHaveBeenCalledWith({ point: { lng: 121.48, lat: 31.24 }, index: 0, totalDistanceMeters: 0 });
+    expect(onCompleted).toHaveBeenCalledWith({
+      points: [
+        { lng: 121.48, lat: 31.24 },
+        { lng: 121.49, lat: 31.25 },
+      ],
+      totalDistanceMeters: 1000,
+    });
+    expect(fake.polylines).toHaveLength(1);
+    expect(fake.circles).toHaveLength(3);
+    expect(fake.labels[0].text).toBe("1.00 km");
+    expect(fake.instances[0].removeEventListener).toHaveBeenCalledWith("click", expect.any(Function));
+    expect(fake.instances[0].removeEventListener).toHaveBeenCalledWith("dblclick", expect.any(Function));
+    expect(fake.instances[0].enableDoubleClickZoom).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders saved measurements as weak map overlays and supports selecting them", async () => {
+    const fake = createFakeApi();
+    const onMeasurementClick = vi.fn();
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+    provider.setMeasurementClickHandler(onMeasurementClick);
+    provider.setMeasurements([
+      {
+        id: "measurement-1",
+        name: "园区边界",
+        points: [
+          { lng: 121.48, lat: 31.24 },
+          { lng: 121.49, lat: 31.25 },
+        ],
+        totalDistanceMeters: 1000,
+      },
+    ]);
+
+    expect(fake.polylines[0]?.options).toMatchObject({
+      strokeColor: "#475569",
+      strokeOpacity: 0.42,
+      strokeStyle: "dashed",
+      strokeWeight: 2,
+    });
+
+    fake.polylines[0]?.triggerClick({ latlng: { lng: 121.48, lat: 31.24 } });
+    expect(onMeasurementClick).toHaveBeenCalledWith("measurement-1");
+
+    provider.setSelectedMeasurement("measurement-1");
+
+    expect(fake.polylines[fake.polylines.length - 1]?.options).toMatchObject({
+      strokeColor: "#2563eb",
+      strokeOpacity: 0.82,
+      strokeStyle: "solid",
+      strokeWeight: 4,
+    });
+    expect(fake.labels[fake.labels.length - 1]?.text).toBe("园区边界 · 1.00 km");
+  });
+
+  it("does not emit a savable measurement when drawing ends with fewer than two points", async () => {
+    const fake = createFakeApi();
+    const onCompleted = vi.fn();
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+    await provider.startDistanceMeasurement({ onCompleted });
+
+    fake.instances[0].triggerClick({ latlng: { lng: 121.48, lat: 31.24 } });
+    fake.instances[0].triggerDoubleClick({ latlng: { lng: 121.48, lat: 31.24 } });
+
+    expect(onCompleted).toHaveBeenCalledWith(null);
+    expect(fake.instances[0].removeOverlay).toHaveBeenCalledTimes(1);
+  });
+
+  it("cleans measurement overlays without emitting completion when stopped by MapX", async () => {
+    const fake = createFakeApi();
+    const onCompleted = vi.fn();
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+    await provider.startDistanceMeasurement({ onCompleted });
+    fake.instances[0].triggerClick({ latlng: { lng: 121.48, lat: 31.24 } });
+    fake.instances[0].triggerClick({ latlng: { lng: 121.49, lat: 31.25 } });
+    provider.stopDistanceMeasurement();
+
+    expect(onCompleted).not.toHaveBeenCalled();
+    expect(fake.instances[0].removeOverlay).toHaveBeenCalledTimes(5);
+    expect(fake.instances[0].enableDoubleClickZoom).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a structured failure when measurement drawing is unavailable", async () => {
+    const fake = createFakeApi();
+    (fake.api as unknown as { Polyline?: unknown }).Polyline = undefined;
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(createContainer(), { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+
+    await expect(provider.startDistanceMeasurement({})).resolves.toEqual({
+      status: "failed",
+      code: "MAP_DISTANCE_TOOL_UNAVAILABLE",
+      message: "百度地图折线工具不可用",
+    });
+  });
+
   it("keeps one thousand marker rendering inside the provider boundary", async () => {
     const fake = createFakeApi();
     const provider = new BaiduMapProvider("test-ak", {
@@ -399,10 +530,19 @@ function createContainer() {
 
 function createFakeApi(options: { geolocationResult?: { point?: { lng: number; lat: number } }; geolocationStatus?: number } = {}) {
   const instances: FakeMap[] = [];
+  const circles: FakeCircle[] = [];
   const geolocations: FakeGeolocation[] = [];
   const icons: FakeIcon[] = [];
+  const labels: FakeLabel[] = [];
   const markers: FakeMarker[] = [];
+  const polylines: FakePolyline[] = [];
   const api = {
+    Circle: class extends FakeCircle {
+      constructor(point: { lng: number; lat: number }, radius: number, options?: unknown) {
+        super(point, radius, options);
+        circles.push(this);
+      }
+    },
     Geolocation: class extends FakeGeolocation {
       constructor() {
         super(options.geolocationResult ?? { point: { lng: 121.4737, lat: 31.2304 } }, options.geolocationStatus ?? 0);
@@ -413,6 +553,12 @@ function createFakeApi(options: { geolocationResult?: { point?: { lng: number; l
       constructor(url: string, size: unknown, options?: unknown) {
         super(url, size, options);
         icons.push(this);
+      }
+    },
+    Label: class extends FakeLabel {
+      constructor(text: string, options?: unknown) {
+        super(text, options);
+        labels.push(this);
       }
     },
     Map: class extends FakeMap {
@@ -433,6 +579,12 @@ function createFakeApi(options: { geolocationResult?: { point?: { lng: number; l
         readonly lat: number,
       ) {}
     },
+    Polyline: class extends FakePolyline {
+      constructor(points: Array<{ lng: number; lat: number }>, options?: unknown) {
+        super(points, options);
+        polylines.push(this);
+      }
+    },
     Size: class {
       constructor(
         readonly width: number,
@@ -443,6 +595,7 @@ function createFakeApi(options: { geolocationResult?: { point?: { lng: number; l
 
   return {
     api,
+    circles,
     runtime: {
       api,
       geolocationSuccessStatus: 0,
@@ -452,7 +605,9 @@ function createFakeApi(options: { geolocationResult?: { point?: { lng: number; l
     geolocations,
     icons,
     instances,
+    labels,
     markers,
+    polylines,
   };
 }
 
@@ -473,12 +628,17 @@ class FakeGeolocation {
 
 class FakeMap {
   private center = { lng: 0, lat: 0 };
-  private clickHandler: ((event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void) | null = null;
+  private clickHandlers: Array<(event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void> = [];
+  private doubleClickHandlers: Array<(event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void> = [];
   private zoomEndHandler: (() => void) | null = null;
   private zoom = 0;
   readonly addEventListener = vi.fn((eventName: string, handler: (event?: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void) => {
     if (eventName === "click") {
-      this.clickHandler = handler as (event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void;
+      this.clickHandlers.push(handler as (event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void);
+    }
+
+    if (eventName === "dblclick") {
+      this.doubleClickHandlers.push(handler as (event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void);
     }
 
     if (eventName === "zoomend") {
@@ -486,9 +646,21 @@ class FakeMap {
     }
   });
   readonly addOverlay = vi.fn();
+  readonly disableDoubleClickZoom = vi.fn();
   readonly destroy = vi.fn();
+  readonly enableDoubleClickZoom = vi.fn();
   readonly enableScrollWheelZoom = vi.fn();
+  readonly getDistance = vi.fn(() => 1000);
   readonly removeOverlay = vi.fn();
+  readonly removeEventListener = vi.fn((eventName: string, handler: (event?: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void) => {
+    if (eventName === "click") {
+      this.clickHandlers = this.clickHandlers.filter((currentHandler) => currentHandler !== handler);
+    }
+
+    if (eventName === "dblclick") {
+      this.doubleClickHandlers = this.doubleClickHandlers.filter((currentHandler) => currentHandler !== handler);
+    }
+  });
   readonly setMapType = vi.fn();
   readonly centerAndZoom = vi.fn((point: { lng: number; lat: number }, zoom: number) => {
     this.center = { lng: point.lng, lat: point.lat };
@@ -506,7 +678,15 @@ class FakeMap {
   }
 
   triggerClick(event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) {
-    this.clickHandler?.(event);
+    for (const handler of this.clickHandlers) {
+      handler(event);
+    }
+  }
+
+  triggerDoubleClick(event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) {
+    for (const handler of this.doubleClickHandlers) {
+      handler(event);
+    }
   }
 
   triggerZoomEnd(zoom: number) {
@@ -521,6 +701,40 @@ class FakeIcon {
     readonly size: unknown,
     readonly options?: unknown,
   ) {}
+}
+
+class FakeCircle {
+  constructor(
+    readonly point: { lng: number; lat: number },
+    readonly radius: number,
+    readonly options?: unknown,
+  ) {}
+}
+
+class FakeLabel {
+  constructor(
+    readonly text: string,
+    readonly options?: unknown,
+  ) {}
+}
+
+class FakePolyline {
+  private clickHandler: ((event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void) | null = null;
+
+  constructor(
+    readonly points: Array<{ lng: number; lat: number }>,
+    readonly options?: unknown,
+  ) {}
+
+  addEventListener(eventName: string, handler: (event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void) {
+    if (eventName === "click") {
+      this.clickHandler = handler;
+    }
+  }
+
+  triggerClick(event: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) {
+    this.clickHandler?.(event);
+  }
 }
 
 function decodeIconSvg(icon: FakeIcon | undefined) {

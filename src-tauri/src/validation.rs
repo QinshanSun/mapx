@@ -38,7 +38,10 @@ pub async fn ensure_active_record(
     table_name: &str,
     record_id: &str,
 ) -> Result<(), AppError> {
-    if !matches!(table_name, "projects" | "markers" | "categories" | "tags") {
+    if !matches!(
+        table_name,
+        "projects" | "markers" | "categories" | "tags" | "measurements"
+    ) {
         return Err(AppError::validation("不支持的校验对象。"));
     }
 
@@ -69,7 +72,10 @@ pub async fn ensure_record_belongs_to_project(
     record_id: &str,
     project_id: &str,
 ) -> Result<(), AppError> {
-    if !matches!(table_name, "markers" | "categories" | "tags") {
+    if !matches!(
+        table_name,
+        "markers" | "categories" | "tags" | "measurements"
+    ) {
         return Err(AppError::validation("不支持的项目引用校验对象。"));
     }
 

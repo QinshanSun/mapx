@@ -138,7 +138,7 @@ mod tests {
             .await
             .expect("migration table should exist");
 
-        assert_eq!(migration_count, 2);
+        assert_eq!(migration_count, 3);
     }
 
     #[tokio::test]
@@ -159,6 +159,7 @@ mod tests {
                 "categories",
                 "marker_tags",
                 "markers",
+                "measurements",
                 "project_settings",
                 "projects",
                 "tags",

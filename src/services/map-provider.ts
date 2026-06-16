@@ -9,6 +9,13 @@ export interface MapMarkerItem {
   icon: string;
 }
 
+export interface MapMeasurementItem {
+  id: string;
+  name: string;
+  points: MapCoordinate[];
+  totalDistanceMeters: number;
+}
+
 export interface MapViewState {
   center: {
     lng: number;
@@ -36,6 +43,29 @@ export interface MapCoordinate {
   lat: number;
 }
 
+export interface MapDistanceMeasurementProgress {
+  point: MapCoordinate;
+  index: number;
+  totalDistanceMeters: number;
+}
+
+export interface MapDistanceMeasurementResult {
+  points: MapCoordinate[];
+  totalDistanceMeters: number;
+}
+
+export interface MapDistanceMeasurementHandlers {
+  onPointAdded?: (progress: MapDistanceMeasurementProgress) => void;
+  onCompleted?: (result: MapDistanceMeasurementResult | null) => void;
+  onCleared?: () => void;
+}
+
+export interface MapDistanceMeasurementStartResult {
+  status: "ready" | "failed";
+  code?: "MAP_DISTANCE_TOOL_UNAVAILABLE";
+  message?: string;
+}
+
 export interface MapPoiPreview {
   id: string;
   name: string;
@@ -56,10 +86,15 @@ export interface MapProvider {
   setLayer(layer: MapLayer): void;
   getLayer(): MapLayer;
   setMarkers(markers: MapMarkerItem[]): void;
+  setMeasurements(measurements: MapMeasurementItem[]): void;
+  setSelectedMeasurement(measurementId: string | null): void;
   setSelectedMarker(markerId: string | null): void;
   setDraggableMarker(markerId: string | null): void;
   setPoiPreview(preview: MapPoiPreview | null): void;
+  startDistanceMeasurement(handlers: MapDistanceMeasurementHandlers): Promise<MapDistanceMeasurementStartResult>;
+  stopDistanceMeasurement(): void;
   setMarkerClickHandler(handler: ((markerId: string) => void) | null): void;
+  setMeasurementClickHandler(handler: ((measurementId: string) => void) | null): void;
   setMarkerDragHandler(handler: ((markerId: string, coordinate: MapCoordinate) => void) | null): void;
   setMapClickHandler(handler: ((coordinate: MapCoordinate) => void) | null): void;
 }

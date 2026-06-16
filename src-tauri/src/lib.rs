@@ -4,6 +4,7 @@ mod db;
 mod errors;
 mod logging;
 mod markers;
+mod measurements;
 mod projects;
 mod settings;
 mod tags;
@@ -124,6 +125,10 @@ pub fn run() {
             markers::search_project_markers,
             markers::soft_delete_marker,
             markers::update_marker,
+            measurements::create_measurement,
+            measurements::list_project_measurements,
+            measurements::soft_delete_measurement,
+            measurements::update_measurement,
             tags::create_tag,
             tags::list_project_tags,
             tags::soft_delete_tag,

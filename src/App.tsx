@@ -7,6 +7,7 @@ import {
   Pencil,
   Plus,
   RotateCcw,
+  Ruler,
   Search,
   Settings,
   Star,
@@ -37,9 +38,10 @@ import {
 } from "@/services/marker-creation";
 import type { BaiduPoiResult } from "@/services/baidu-poi-search-provider";
 import type { MarkerListFilters } from "@/services/marker-list";
+import { createMeasurement, listProjectMeasurements, softDeleteMeasurement, updateMeasurement } from "@/services/measurement-service";
 import { softDeleteMarker } from "@/services/marker-service";
 import { buildMapMarkerItems, findMarkerById } from "@/services/map-marker-render";
-import type { MapCoordinate, MapMarkerItem, MapPoiPreview } from "@/services/map-provider";
+import type { MapCoordinate, MapDistanceMeasurementResult, MapMeasurementItem, MapMarkerItem, MapPoiPreview } from "@/services/map-provider";
 import { cancelPoiPreview, replacePoiPreview } from "@/services/poi-preview";
 import {
   createProject,
@@ -57,6 +59,7 @@ import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { BootstrapStatus } from "@/types/bootstrap";
 import type { CategoryRecord } from "@/types/category";
 import type { MarkerRecord } from "@/types/marker";
+import type { MeasurementRecord } from "@/types/measurement";
 import type { MapLayer, ProjectWorkspace } from "@/types/project";
 import type { FirstLaunchSettings } from "@/types/settings";
 import type { WorkspacePanel } from "@/types/workspace";
@@ -95,8 +98,11 @@ function App() {
   const [isMarkerCreationMode, setIsMarkerCreationMode] = useState(false);
   const [projectActionError, setProjectActionError] = useState<string | null>(null);
   const [selectedMarkerRecord, setSelectedMarkerRecord] = useState<MarkerRecord | null>(null);
+  const [selectedMeasurementRecord, setSelectedMeasurementRecord] = useState<MeasurementRecord | null>(null);
   const [isMarkerDetailEditing, setIsMarkerDetailEditing] = useState(false);
+  const [isMeasurementEditing, setIsMeasurementEditing] = useState(false);
   const [filteredMarkerRecords, setFilteredMarkerRecords] = useState<MarkerRecord[]>([]);
+  const [measurements, setMeasurements] = useState<MeasurementRecord[]>([]);
   const [markerCategories, setMarkerCategories] = useState<CategoryRecord[]>([]);
   const [markerListFilters, setMarkerListFilters] = useState<MarkerListFilters>({
     categoryId: "all",
@@ -109,13 +115,21 @@ function App() {
   const [searchFocusRequestKey, setSearchFocusRequestKey] = useState(0);
   const [coordinateEditMarkerId, setCoordinateEditMarkerId] = useState<string | null>(null);
   const [movedMarkerCoordinate, setMovedMarkerCoordinate] = useState<MapCoordinate | null>(null);
+  const [isDistanceMeasurementMode, setIsDistanceMeasurementMode] = useState(false);
+  const [pendingMeasurementResult, setPendingMeasurementResult] = useState<MapDistanceMeasurementResult | null>(null);
+  const [measurementFormName, setMeasurementFormName] = useState("");
+  const [measurementFormNote, setMeasurementFormNote] = useState("");
+  const [pendingDeleteMeasurement, setPendingDeleteMeasurement] = useState<MeasurementRecord | null>(null);
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | null>(null);
   const [isProjectSaving, setIsProjectSaving] = useState(false);
   const [isProjectRenaming, setIsProjectRenaming] = useState(false);
   const [isProjectDeleting, setIsProjectDeleting] = useState(false);
   const [isMarkerDeleting, setIsMarkerDeleting] = useState(false);
+  const [isMeasurementSaving, setIsMeasurementSaving] = useState(false);
+  const [isMeasurementDeleting, setIsMeasurementDeleting] = useState(false);
   const [isMapLayerSaving, setIsMapLayerSaving] = useState(false);
   const [firstLaunchError, setFirstLaunchError] = useState<string | null>(null);
+  const currentProjectId = projectWorkspace?.currentProject.id ?? null;
   const pendingDeleteProject = projectWorkspace?.projects.find((project) => project.id === pendingDeleteProjectId) ?? null;
   const markerDirtyHandlersRef = useRef<MarkerDirtyHandlers | null>(null);
   const pendingDirtyActionRef = useRef<PendingDirtyAction | null>(null);
@@ -148,6 +162,16 @@ function App() {
 
     return markerItems;
   }, [coordinateEditMarkerId, filteredMarkerRecords, markerCategories, movedMarkerCoordinate, pendingMarker]);
+  const mapMeasurements = useMemo<MapMeasurementItem[]>(
+    () =>
+      measurements.map((measurement) => ({
+        id: measurement.id,
+        name: measurement.name,
+        points: measurement.points,
+        totalDistanceMeters: measurement.totalDistanceMeters,
+      })),
+    [measurements],
+  );
   const handleSettingsError = useCallback((error: unknown) => {
     setFirstLaunchError(getBackendErrorMessage(error));
   }, []);
@@ -270,6 +294,8 @@ function App() {
         run: () => {
           setCoordinateEditMarkerId(null);
           setMovedMarkerCoordinate(null);
+          setSelectedMeasurementRecord(null);
+          setIsMeasurementEditing(false);
           setIsMarkerDetailEditing(false);
           selectMarker(marker.id);
           setSelectedMarkerRecord(marker);
@@ -279,11 +305,42 @@ function App() {
     [filteredMarkerRecords, runWithMarkerDirtyGuard, selectMarker],
   );
 
+  const handleMapMeasurementSelect = useCallback(
+    (measurementId: string) => {
+      const measurement = measurements.find((currentMeasurement) => currentMeasurement.id === measurementId);
+
+      if (!measurement) {
+        return;
+      }
+
+      runWithMarkerDirtyGuard({
+        message: "切换测距记录前，当前点位还有未保存的修改。",
+        run: () => {
+          setPoiPreview(cancelPoiPreview());
+          setPendingMarker(null);
+          setIsMarkerCreationMode(false);
+          setCoordinateEditMarkerId(null);
+          setMovedMarkerCoordinate(null);
+          setIsMarkerDetailEditing(false);
+          setSelectedMarkerRecord(null);
+          selectMarker(null);
+          setSelectedMeasurementRecord(measurement);
+          setIsMeasurementEditing(false);
+          setActivePanel("overview");
+          setProjectActionError(null);
+        },
+      });
+    },
+    [measurements, runWithMarkerDirtyGuard, selectMarker, setActivePanel],
+  );
+
   const selectMarkerRecord = useCallback(
     (marker: MarkerRecord) => {
       setPoiPreview(cancelPoiPreview());
       setCoordinateEditMarkerId(null);
       setMovedMarkerCoordinate(null);
+      setSelectedMeasurementRecord(null);
+      setIsMeasurementEditing(false);
       setIsMarkerDetailEditing(false);
       selectMarker(marker.id);
       setSelectedMarkerRecord(marker);
@@ -302,6 +359,8 @@ function App() {
 
       setPoiPreview(nextPreview);
       setSelectedMarkerRecord(null);
+      setSelectedMeasurementRecord(null);
+      setIsMeasurementEditing(false);
       setIsMarkerDetailEditing(false);
       selectMarker(null);
       setProjectActionError(null);
@@ -316,6 +375,7 @@ function App() {
   const clearPendingMarker = useCallback(() => {
     setPendingMarker(null);
     setIsMarkerCreationMode(false);
+    setIsDistanceMeasurementMode(false);
     setCoordinateEditMarkerId(null);
     setMovedMarkerCoordinate(null);
     setIsMarkerDetailEditing(false);
@@ -327,6 +387,9 @@ function App() {
       run: () => {
         setCoordinateEditMarkerId(null);
         setMovedMarkerCoordinate(null);
+        setSelectedMeasurementRecord(null);
+        setIsMeasurementEditing(false);
+        setIsDistanceMeasurementMode(false);
         setIsMarkerCreationMode(true);
         setActivePanel("markers");
       },
@@ -352,9 +415,12 @@ function App() {
         run: () => {
           setPendingMarker(nextPendingMarker);
           setPoiPreview(cancelPoiPreview());
+          setIsDistanceMeasurementMode(false);
           setCoordinateEditMarkerId(null);
           setMovedMarkerCoordinate(null);
           setIsMarkerDetailEditing(false);
+          setSelectedMeasurementRecord(null);
+          setIsMeasurementEditing(false);
           setSelectedMarkerRecord(null);
           selectMarker(null);
           setActivePanel("markers");
@@ -388,6 +454,58 @@ function App() {
     },
     [beginPendingMarkerCreation, projectWorkspace],
   );
+
+  const startDistanceMeasurementMode = useCallback(() => {
+    if (mapAvailability !== "ready") {
+      setProjectActionError("当前地图不可用，无法新建测距。已保存的测距记录仍可查看。");
+      return;
+    }
+
+    runWithMarkerDirtyGuard({
+      message: "进入测距前，当前点位还有未保存的修改。",
+      run: () => {
+        setPendingMarker(null);
+        setIsMarkerCreationMode(false);
+        setCoordinateEditMarkerId(null);
+        setMovedMarkerCoordinate(null);
+        setIsMarkerDetailEditing(false);
+        setSelectedMarkerRecord(null);
+        selectMarker(null);
+        setSelectedMeasurementRecord(null);
+        setIsMeasurementEditing(false);
+        setIsDistanceMeasurementMode(true);
+        setActivePanel("overview");
+        setProjectActionError(null);
+      },
+    });
+  }, [mapAvailability, runWithMarkerDirtyGuard, selectMarker, setActivePanel]);
+
+  const cancelDistanceMeasurementMode = useCallback(() => {
+    setIsDistanceMeasurementMode(false);
+    setProjectActionError(null);
+  }, []);
+
+  const handleDistanceMeasurementCompleted = useCallback(
+    (result: MapDistanceMeasurementResult | null) => {
+      setIsDistanceMeasurementMode(false);
+
+      if (!result) {
+        setProjectActionError("测距至少需要两个点，已取消本次测距。");
+        return;
+      }
+
+      setPendingMeasurementResult(result);
+      setMeasurementFormName(`测距 ${measurements.length + 1}`);
+      setMeasurementFormNote("");
+      setProjectActionError(null);
+    },
+    [measurements.length],
+  );
+
+  const handleDistanceMeasurementFailed = useCallback((message: string) => {
+    setIsDistanceMeasurementMode(false);
+    setProjectActionError(message);
+  }, []);
 
   const handleSavePoiPreviewAsMarker = useCallback(() => {
     if (!projectWorkspace || !poiPreview) {
@@ -448,16 +566,147 @@ function App() {
       .finally(() => setIsMarkerDeleting(false));
   }, [pendingDeleteMarker, selectMarker, setActivePanel]);
 
+  const handleMeasurementSave = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+
+      if (!projectWorkspace || !pendingMeasurementResult) {
+        return;
+      }
+
+      const name = measurementFormName.trim();
+      if (!name) {
+        setProjectActionError("测距名称不能为空。");
+        return;
+      }
+
+      setIsMeasurementSaving(true);
+      createMeasurement({
+        projectId: projectWorkspace.currentProject.id,
+        name,
+        points: pendingMeasurementResult.points,
+        totalDistanceMeters: pendingMeasurementResult.totalDistanceMeters,
+        note: measurementFormNote,
+      })
+        .then((measurement) => {
+          setMeasurements((currentMeasurements) => [measurement, ...currentMeasurements]);
+          setSelectedMeasurementRecord(measurement);
+          setIsMeasurementEditing(false);
+          setSelectedMarkerRecord(null);
+          selectMarker(null);
+          setPendingMeasurementResult(null);
+          setMeasurementFormName("");
+          setMeasurementFormNote("");
+          setProjectActionError(null);
+          setActivePanel("overview");
+        })
+        .catch((error) => setProjectActionError(getBackendErrorMessage(error)))
+        .finally(() => setIsMeasurementSaving(false));
+    },
+    [measurementFormName, measurementFormNote, pendingMeasurementResult, projectWorkspace, selectMarker, setActivePanel],
+  );
+
+  const handleMeasurementUpdate = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+
+      if (!selectedMeasurementRecord) {
+        return;
+      }
+
+      const name = measurementFormName.trim();
+      if (!name) {
+        setProjectActionError("测距名称不能为空。");
+        return;
+      }
+
+      setIsMeasurementSaving(true);
+      updateMeasurement({
+        projectId: selectedMeasurementRecord.projectId,
+        measurementId: selectedMeasurementRecord.id,
+        name,
+        note: measurementFormNote,
+      })
+        .then((measurement) => {
+          setMeasurements((currentMeasurements) =>
+            currentMeasurements.map((currentMeasurement) => (currentMeasurement.id === measurement.id ? measurement : currentMeasurement)),
+          );
+          setSelectedMeasurementRecord(measurement);
+          setIsMeasurementEditing(false);
+          setProjectActionError(null);
+        })
+        .catch((error) => setProjectActionError(getBackendErrorMessage(error)))
+        .finally(() => setIsMeasurementSaving(false));
+    },
+    [measurementFormName, measurementFormNote, selectedMeasurementRecord],
+  );
+
+  const openMeasurementDeleteConfirm = useCallback(() => {
+    if (!selectedMeasurementRecord) {
+      return;
+    }
+
+    setPendingDeleteMeasurement(selectedMeasurementRecord);
+    setProjectActionError(null);
+  }, [selectedMeasurementRecord]);
+
+  const handleMeasurementDeleteConfirmed = useCallback(() => {
+    if (!pendingDeleteMeasurement) {
+      return;
+    }
+
+    setIsMeasurementDeleting(true);
+    softDeleteMeasurement(pendingDeleteMeasurement.projectId, pendingDeleteMeasurement.id)
+      .then(() => {
+        setMeasurements((currentMeasurements) => currentMeasurements.filter((measurement) => measurement.id !== pendingDeleteMeasurement.id));
+        setSelectedMeasurementRecord(null);
+        setIsMeasurementEditing(false);
+        setPendingDeleteMeasurement(null);
+        setProjectActionError(null);
+      })
+      .catch((error) => setProjectActionError(getBackendErrorMessage(error)))
+      .finally(() => setIsMeasurementDeleting(false));
+  }, [pendingDeleteMeasurement]);
+
+  useEffect(() => {
+    if (!currentProjectId) {
+      return;
+    }
+
+    let isActive = true;
+
+    listProjectMeasurements(currentProjectId)
+      .then((nextMeasurements) => {
+        if (isActive) {
+          setMeasurements(nextMeasurements);
+        }
+      })
+      .catch((error) => {
+        if (isActive) {
+          setProjectActionError(getBackendErrorMessage(error));
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [currentProjectId]);
+
   useEffect(() => {
     setFilteredMarkerRecords([]);
     setMarkerCategories([]);
     setPoiPreview(cancelPoiPreview());
     setPendingDeleteMarker(null);
+    setPendingDeleteMeasurement(null);
+    setSelectedMeasurementRecord(null);
+    setIsMeasurementEditing(false);
+    setPendingMeasurementResult(null);
+    setIsDistanceMeasurementMode(false);
     setCoordinateEditMarkerId(null);
     setMovedMarkerCoordinate(null);
     setIsMarkerDetailEditing(false);
     clearPendingMarker();
-  }, [clearPendingMarker, projectWorkspace?.currentProject.id]);
+  }, [clearPendingMarker, currentProjectId]);
 
   const handleDirtyPromptChoice = useCallback(
     async (choice: DirtyGuardChoice) => {
@@ -639,6 +888,8 @@ function App() {
             .then((workspace) => {
               setProjectWorkspace(workspace);
               setSelectedMarkerRecord(null);
+              setSelectedMeasurementRecord(null);
+              setIsMeasurementEditing(false);
               setIsMarkerDetailEditing(false);
               selectMarker(null);
               setIsProjectRenameOpen(false);
@@ -669,6 +920,8 @@ function App() {
         .then((workspace) => {
           setProjectWorkspace(workspace);
           setSelectedMarkerRecord(null);
+          setSelectedMeasurementRecord(null);
+          setIsMeasurementEditing(false);
           setIsMarkerDetailEditing(false);
           selectMarker(null);
           setNewProjectName("");
@@ -729,6 +982,8 @@ function App() {
 
         if (isDeletingCurrentProject) {
           setSelectedMarkerRecord(null);
+          setSelectedMeasurementRecord(null);
+          setIsMeasurementEditing(false);
           setIsMarkerDetailEditing(false);
           selectMarker(null);
           setIsProjectRenameOpen(false);
@@ -785,7 +1040,11 @@ function App() {
 
       runWithMarkerDirtyGuard({
         message: "切换视图前，当前点位还有未保存的修改。",
-        run: () => setActivePanel(panel),
+        run: () => {
+          setSelectedMeasurementRecord(null);
+          setIsMeasurementEditing(false);
+          setActivePanel(panel);
+        },
       });
     },
     [activePanel, runWithMarkerDirtyGuard, setActivePanel],
@@ -833,13 +1092,17 @@ function App() {
     return <BootstrapGate title="正在读取项目工作区" message="MapX 正在准备默认项目和项目设置。" />;
   }
 
-  const detailTitle = resolveWorkspaceDetailTitle({
-    activePanel,
-    hasSelectedMarker: Boolean(selectedMarkerRecord),
-    hasPendingMarker: Boolean(pendingMarker),
-    isEditingMarker: isMarkerDetailEditing,
-    hasPoiPreview: Boolean(poiPreview),
-  });
+  const detailTitle = selectedMeasurementRecord
+    ? isMeasurementEditing
+      ? "编辑测距"
+      : "测距详情"
+    : resolveWorkspaceDetailTitle({
+        activePanel,
+        hasSelectedMarker: Boolean(selectedMarkerRecord),
+        hasPendingMarker: Boolean(pendingMarker),
+        isEditingMarker: isMarkerDetailEditing,
+        hasPoiPreview: Boolean(poiPreview),
+      });
   const akStatus = firstLaunchSettings.baiduAk ? "已配置" : "未配置";
   const mapLayerLabel = projectWorkspace.settings.mapLayer === "satellite" ? "卫星图" : "普通地图";
 
@@ -1063,18 +1326,26 @@ function App() {
                 baiduAk={firstLaunchSettings.baiduAk}
                 settings={projectWorkspace.settings}
                 markers={mapMarkers}
+                measurements={mapMeasurements}
                 poiPreview={poiPreview}
                 selectedMarkerId={pendingMarker?.id ?? selectedMarkerId}
+                selectedMeasurementId={selectedMeasurementRecord?.id ?? null}
                 draggableMarkerId={coordinateEditMarkerId}
                 isMarkerCreationMode={isMarkerCreationMode}
+                isDistanceMeasurementMode={isDistanceMeasurementMode}
                 pendingMarkerCoordinate={pendingMarker ? { lng: pendingMarker.lng, lat: pendingMarker.lat } : null}
                 movedMarkerCoordinate={movedMarkerCoordinate}
                 isMapLayerSaving={isMapLayerSaving}
                 onSelectMarker={handleMapMarkerSelect}
+                onSelectMeasurement={handleMapMeasurementSelect}
                 onMarkerDragged={handleMarkerDragged}
                 onMapLayerChange={handleMapLayerChange}
                 onStartMarkerCreationMode={startMarkerCreationMode}
                 onCancelMarkerCreationMode={cancelMarkerCreationMode}
+                onStartDistanceMeasurementMode={startDistanceMeasurementMode}
+                onCancelDistanceMeasurementMode={cancelDistanceMeasurementMode}
+                onDistanceMeasurementCompleted={handleDistanceMeasurementCompleted}
+                onDistanceMeasurementFailed={handleDistanceMeasurementFailed}
                 onCreateMarkerAtCoordinate={handleCreateMarkerAtCoordinate}
                 onCreateMarkerAtCenter={handleCreateMarkerAtCenter}
                 onOpenSettings={() =>
@@ -1098,7 +1369,104 @@ function App() {
             <h2 className="mt-1 text-base font-semibold">{detailTitle}</h2>
           </header>
 
-          {activePanel === "markers" ? (
+          {selectedMeasurementRecord ? (
+            <div className="space-y-4 p-5">
+              {isMeasurementEditing ? (
+                <form className="rounded-lg border border-border p-4" onSubmit={handleMeasurementUpdate}>
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs text-muted-foreground">测距记录</p>
+                      <h3 className="mt-1 truncate text-base font-semibold">编辑名称和备注</h3>
+                    </div>
+                    <Ruler className="size-4 shrink-0 text-primary" />
+                  </div>
+                  <label className="block text-xs font-medium text-slate-600" htmlFor="measurement-name">
+                    名称
+                  </label>
+                  <input
+                    id="measurement-name"
+                    className="mt-1 h-9 w-full rounded-md border border-input bg-white px-3 text-sm outline-none transition focus:border-primary"
+                    value={measurementFormName}
+                    onChange={(event) => setMeasurementFormName(event.target.value)}
+                  />
+                  <label className="mt-3 block text-xs font-medium text-slate-600" htmlFor="measurement-note">
+                    备注
+                  </label>
+                  <textarea
+                    id="measurement-note"
+                    className="mt-1 min-h-24 w-full resize-none rounded-md border border-input bg-white px-3 py-2 text-sm outline-none transition focus:border-primary"
+                    value={measurementFormNote}
+                    onChange={(event) => setMeasurementFormNote(event.target.value)}
+                    placeholder="可选"
+                  />
+                  <p className="mt-3 text-xs leading-5 text-muted-foreground">折线几何不可编辑；需要修改路径时请重新测距。</p>
+                  <div className="mt-4 flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isMeasurementSaving}
+                      onClick={() => {
+                        setIsMeasurementEditing(false);
+                        setMeasurementFormName(selectedMeasurementRecord.name);
+                        setMeasurementFormNote(selectedMeasurementRecord.note ?? "");
+                        setProjectActionError(null);
+                      }}
+                    >
+                      <X />
+                      取消
+                    </Button>
+                    <Button type="submit" size="sm" disabled={isMeasurementSaving}>
+                      <Check />
+                      保存
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <section className="rounded-lg border border-border p-4">
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs text-muted-foreground">测距记录</p>
+                      <h3 className="mt-1 truncate text-base font-semibold">{selectedMeasurementRecord.name}</h3>
+                    </div>
+                    <Ruler className="size-4 shrink-0 text-primary" />
+                  </div>
+                  <dl className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <dt className="text-xs text-muted-foreground">距离</dt>
+                      <dd className="mt-1 font-medium">{formatDistanceMeters(selectedMeasurementRecord.totalDistanceMeters)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">点数</dt>
+                      <dd className="mt-1 font-medium">{selectedMeasurementRecord.points.length}</dd>
+                    </div>
+                    <div className="col-span-2">
+                      <dt className="text-xs text-muted-foreground">备注</dt>
+                      <dd className="mt-1 whitespace-pre-wrap text-sm leading-6 text-foreground">{selectedMeasurementRecord.note ?? "无备注"}</dd>
+                    </div>
+                  </dl>
+                  <div className="mt-4 flex justify-end gap-2">
+                    <Button type="button" size="sm" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50" onClick={openMeasurementDeleteConfirm}>
+                      <Trash2 />
+                      删除
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        setMeasurementFormName(selectedMeasurementRecord.name);
+                        setMeasurementFormNote(selectedMeasurementRecord.note ?? "");
+                        setIsMeasurementEditing(true);
+                      }}
+                    >
+                      <Pencil />
+                      编辑
+                    </Button>
+                  </div>
+                </section>
+              )}
+            </div>
+          ) : activePanel === "markers" ? (
             <MarkerDetailPanel
               key={
                 pendingMarker
@@ -1250,6 +1618,32 @@ function App() {
               </section>
 
               <section className="rounded-lg border border-border bg-slate-50 p-4 text-sm leading-6">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="font-semibold text-foreground">测距记录</h3>
+                  <Ruler className="size-4 text-muted-foreground" />
+                </div>
+                {measurements.length === 0 ? (
+                  <p className="text-muted-foreground">暂无测距记录。</p>
+                ) : (
+                  <div className="space-y-2">
+                    {measurements.slice(0, 5).map((measurement) => (
+                      <button
+                        key={measurement.id}
+                        type="button"
+                        className="w-full rounded-md border border-border bg-white px-3 py-2 text-left transition hover:border-primary/40 hover:bg-primary/5"
+                        onClick={() => handleMapMeasurementSelect(measurement.id)}
+                      >
+                        <span className="block truncate text-sm font-medium text-foreground">{measurement.name}</span>
+                        <span className="mt-1 block text-xs text-muted-foreground">
+                          {formatDistanceMeters(measurement.totalDistanceMeters)} · {measurement.points.length} 点
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="rounded-lg border border-border bg-slate-50 p-4 text-sm leading-6">
                 <h3 className="mb-2 font-semibold">最近动作</h3>
                 {lastActionNotice ? (
                   <div>
@@ -1265,6 +1659,61 @@ function App() {
           )}
         </aside>
       </section>
+      {pendingMeasurementResult ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/35 p-6">
+          <form className="w-full max-w-md rounded-lg border border-border bg-white p-5 shadow-lg" role="dialog" aria-modal="true" aria-labelledby="save-measurement-title" onSubmit={handleMeasurementSave}>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 id="save-measurement-title" className="text-base font-semibold">保存测距记录</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{formatDistanceMeters(pendingMeasurementResult.totalDistanceMeters)} · {pendingMeasurementResult.points.length} 点</p>
+              </div>
+              <Ruler className="size-5 shrink-0 text-primary" />
+            </div>
+            <label className="block text-xs font-medium text-slate-600" htmlFor="new-measurement-name">
+              名称
+            </label>
+            <input
+              id="new-measurement-name"
+              className="mt-1 h-9 w-full rounded-md border border-input bg-white px-3 text-sm outline-none transition focus:border-primary"
+              value={measurementFormName}
+              onChange={(event) => setMeasurementFormName(event.target.value)}
+              autoFocus
+            />
+            <label className="mt-3 block text-xs font-medium text-slate-600" htmlFor="new-measurement-note">
+              备注
+            </label>
+            <textarea
+              id="new-measurement-note"
+              className="mt-1 min-h-24 w-full resize-none rounded-md border border-input bg-white px-3 py-2 text-sm outline-none transition focus:border-primary"
+              value={measurementFormNote}
+              onChange={(event) => setMeasurementFormNote(event.target.value)}
+              placeholder="可选"
+            />
+            {projectActionError ? <p className="mt-3 text-sm leading-6 text-red-600">{projectActionError}</p> : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isMeasurementSaving}
+                onClick={() => {
+                  setPendingMeasurementResult(null);
+                  setMeasurementFormName("");
+                  setMeasurementFormNote("");
+                  setProjectActionError(null);
+                }}
+              >
+                <X />
+                取消
+              </Button>
+              <Button type="submit" size="sm" disabled={isMeasurementSaving}>
+                <Check />
+                保存
+              </Button>
+            </div>
+          </form>
+        </div>
+      ) : null}
       {dirtyPrompt ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/35 p-6">
           <section className="w-full max-w-md rounded-lg border border-border bg-white p-5 shadow-lg" role="dialog" aria-modal="true" aria-labelledby="dirty-guard-title">
@@ -1338,6 +1787,42 @@ function App() {
           </section>
         </div>
       ) : null}
+      {pendingDeleteMeasurement ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/35 p-6">
+          <section className="w-full max-w-md rounded-lg border border-red-200 bg-white p-5 shadow-lg" role="dialog" aria-modal="true" aria-labelledby="delete-measurement-title">
+            <h2 id="delete-measurement-title" className="text-base font-semibold text-red-700">确认删除“{pendingDeleteMeasurement.name}”？</h2>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              测距记录会从当前项目和地图中隐藏，本地 SQLite 记录会保留并写入删除时间。
+            </p>
+            {projectActionError ? <p className="mt-3 text-sm leading-6 text-red-600">{projectActionError}</p> : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isMeasurementDeleting}
+                onClick={() => {
+                  setPendingDeleteMeasurement(null);
+                  setProjectActionError(null);
+                }}
+              >
+                <X />
+                取消
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="border border-red-600 bg-white text-red-700 hover:bg-red-50"
+                disabled={isMeasurementDeleting}
+                onClick={handleMeasurementDeleteConfirmed}
+              >
+                <Trash2 />
+                删除测距
+              </Button>
+            </div>
+          </section>
+        </div>
+      ) : null}
       {pendingDeleteProject ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/35 p-6">
           <section className="w-full max-w-md rounded-lg border border-red-200 bg-white p-5 shadow-lg" role="dialog" aria-modal="true" aria-labelledby="delete-project-title">
@@ -1402,6 +1887,14 @@ function BootstrapGate({ title, message, detail }: { title: string; message: str
       </section>
     </main>
   );
+}
+
+function formatDistanceMeters(distanceMeters: number) {
+  if (distanceMeters >= 1000) {
+    return `${(distanceMeters / 1000).toFixed(distanceMeters >= 10_000 ? 1 : 2)} km`;
+  }
+
+  return `${Math.round(distanceMeters)} m`;
 }
 
 export default App;

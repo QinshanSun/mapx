@@ -7,6 +7,7 @@ import {
   MapPin,
   Plus,
   RotateCcw,
+  Ruler,
   Satellite,
   Settings,
   X,
@@ -24,7 +25,14 @@ import {
   resolveMapCanvasOverlay,
   type MapCanvasActionId,
 } from "@/services/map-canvas-state";
-import type { MapCoordinate, MapMarkerItem, MapPoiPreview, MapProvider } from "@/services/map-provider";
+import type {
+  MapCoordinate,
+  MapDistanceMeasurementResult,
+  MapMeasurementItem,
+  MapMarkerItem,
+  MapPoiPreview,
+  MapProvider,
+} from "@/services/map-provider";
 import type { MapLayer, ProjectMapSettings } from "@/types/project";
 
 interface MapLoadResult {
@@ -39,18 +47,26 @@ interface MapCanvasProps {
   baiduAk: string | null;
   settings: ProjectMapSettings;
   markers: MapMarkerItem[];
+  measurements: MapMeasurementItem[];
   poiPreview: MapPoiPreview | null;
   selectedMarkerId: string | null;
+  selectedMeasurementId: string | null;
   draggableMarkerId: string | null;
   isMarkerCreationMode: boolean;
+  isDistanceMeasurementMode: boolean;
   pendingMarkerCoordinate: MapCoordinate | null;
   movedMarkerCoordinate: MapCoordinate | null;
   isMapLayerSaving: boolean;
   onSelectMarker: (markerId: string) => void;
+  onSelectMeasurement: (measurementId: string) => void;
   onMarkerDragged: (markerId: string, coordinate: MapCoordinate) => void;
   onMapLayerChange: (mapLayer: MapLayer) => void;
   onStartMarkerCreationMode: () => void;
   onCancelMarkerCreationMode: () => void;
+  onStartDistanceMeasurementMode: () => void;
+  onCancelDistanceMeasurementMode: () => void;
+  onDistanceMeasurementCompleted: (result: MapDistanceMeasurementResult | null) => void;
+  onDistanceMeasurementFailed: (message: string) => void;
   onCreateMarkerAtCoordinate: (coordinate: MapCoordinate) => void;
   onCreateMarkerAtCenter: (coordinate: MapCoordinate) => void;
   onOpenSettings: () => void;
@@ -62,18 +78,26 @@ export function MapCanvas({
   baiduAk,
   settings,
   markers,
+  measurements,
   poiPreview,
   selectedMarkerId,
+  selectedMeasurementId,
   draggableMarkerId,
   isMarkerCreationMode,
+  isDistanceMeasurementMode,
   pendingMarkerCoordinate,
   movedMarkerCoordinate,
   isMapLayerSaving,
   onSelectMarker,
+  onSelectMeasurement,
   onMarkerDragged,
   onMapLayerChange,
   onStartMarkerCreationMode,
   onCancelMarkerCreationMode,
+  onStartDistanceMeasurementMode,
+  onCancelDistanceMeasurementMode,
+  onDistanceMeasurementCompleted,
+  onDistanceMeasurementFailed,
   onCreateMarkerAtCoordinate,
   onCreateMarkerAtCenter,
   onOpenSettings,
@@ -202,6 +226,14 @@ export function MapCanvas({
   }, [markers]);
 
   useEffect(() => {
+    providerRef.current?.setMeasurements(measurements);
+  }, [measurements]);
+
+  useEffect(() => {
+    providerRef.current?.setSelectedMeasurement(selectedMeasurementId);
+  }, [selectedMeasurementId]);
+
+  useEffect(() => {
     providerRef.current?.setSelectedMarker(selectedMarkerId);
   }, [selectedMarkerId]);
 
@@ -222,6 +254,14 @@ export function MapCanvas({
   }, [onSelectMarker]);
 
   useEffect(() => {
+    providerRef.current?.setMeasurementClickHandler(onSelectMeasurement);
+
+    return () => {
+      providerRef.current?.setMeasurementClickHandler(null);
+    };
+  }, [onSelectMeasurement]);
+
+  useEffect(() => {
     providerRef.current?.setMarkerDragHandler(onMarkerDragged);
 
     return () => {
@@ -236,6 +276,38 @@ export function MapCanvas({
       providerRef.current?.setMapClickHandler(null);
     };
   }, [isMarkerCreationMode, onCreateMarkerAtCoordinate]);
+
+  useEffect(() => {
+    if (!isDistanceMeasurementMode || status !== "ready") {
+      providerRef.current?.stopDistanceMeasurement();
+      return;
+    }
+
+    let disposed = false;
+    providerRef.current
+      ?.startDistanceMeasurement({
+        onCompleted: (result) => {
+          if (!disposed) {
+            onDistanceMeasurementCompleted(result);
+          }
+        },
+      })
+      .then((result) => {
+        if (!disposed && result.status === "failed") {
+          onDistanceMeasurementFailed(result.message ?? "无法开始测距。");
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          onDistanceMeasurementFailed("无法开始测距。");
+        }
+      });
+
+    return () => {
+      disposed = true;
+      providerRef.current?.stopDistanceMeasurement();
+    };
+  }, [isDistanceMeasurementMode, onDistanceMeasurementCompleted, onDistanceMeasurementFailed, status]);
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-slate-100">
@@ -290,6 +362,19 @@ export function MapCanvas({
           {isMarkerCreationMode ? <X /> : <Plus />}
           {isMarkerCreationMode ? "取消添加" : "添加点位"}
         </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={isDistanceMeasurementMode ? "default" : "outline"}
+          className="bg-white shadow-sm data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
+          data-active={isDistanceMeasurementMode}
+          aria-label={isDistanceMeasurementMode ? "取消测距模式" : "进入测距模式"}
+          disabled={status !== "ready" && !isDistanceMeasurementMode}
+          onClick={isDistanceMeasurementMode ? onCancelDistanceMeasurementMode : onStartDistanceMeasurementMode}
+        >
+          {isDistanceMeasurementMode ? <X /> : <Ruler />}
+          {isDistanceMeasurementMode ? "取消测距" : "测距"}
+        </Button>
         <Button type="button" size="sm" variant="outline" className="bg-white shadow-sm" aria-label="用地图中心创建点位" onClick={handleCreateAtCenter}>
           <Crosshair />
           中心点
@@ -321,6 +406,12 @@ export function MapCanvas({
             <MapPin className="size-3.5" />
             坐标已变更：
             {movedMarkerCoordinate.lng.toFixed(5)}, {movedMarkerCoordinate.lat.toFixed(5)}
+          </div>
+        ) : null}
+        {isDistanceMeasurementMode ? (
+          <div className="flex min-h-9 items-center gap-2 rounded-md border border-primary/30 bg-white/95 px-3 py-2 text-xs font-medium text-primary shadow-sm">
+            <Ruler className="size-3.5" />
+            单击添加测距点，双击结束并保存
           </div>
         ) : null}
         {locateMessage ? (

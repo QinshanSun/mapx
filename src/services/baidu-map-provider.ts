@@ -1,7 +1,16 @@
 import { loadBaiduMapScript, type BaiduMapLoadResult } from "@/services/baidu-map-loader";
 import { DEFAULT_LOCATE_ME_ZOOM, DEFAULT_LOCATION_TIMEOUT_MS, getBrowserGeolocationErrorCode } from "@/services/map-location";
 import { adjustMapViewZoom } from "@/services/map-provider";
-import type { MapCoordinate, MapMarkerItem, MapPoiPreview, MapProvider, MapViewState } from "@/services/map-provider";
+import type {
+  MapCoordinate,
+  MapDistanceMeasurementHandlers,
+  MapDistanceMeasurementStartResult,
+  MapMeasurementItem,
+  MapMarkerItem,
+  MapPoiPreview,
+  MapProvider,
+  MapViewState,
+} from "@/services/map-provider";
 import type { MapLayer } from "@/types/project";
 
 interface BaiduPoint {
@@ -13,10 +22,14 @@ interface BaiduMapInstance {
   addEventListener?: (eventName: string, handler: (event?: BaiduMapClickEvent) => void) => void;
   addOverlay(overlay: unknown): void;
   centerAndZoom(point: BaiduPoint, zoom: number): void;
+  disableDoubleClickZoom?: () => void;
+  enableDoubleClickZoom?: () => void;
   enableScrollWheelZoom?: (enabled?: boolean) => void;
+  getDistance?: (start: BaiduPoint, end: BaiduPoint) => number;
   getCenter(): BaiduPoint;
   getZoom(): number;
   removeOverlay(overlay: unknown): void;
+  removeEventListener?: (eventName: string, handler: (event?: BaiduMapClickEvent) => void) => void;
   setMapType?: (mapType: unknown) => void;
   destroy?: () => void;
 }
@@ -57,13 +70,20 @@ interface BaiduMarkerInstance {
   setZIndex?: (zIndex: number) => void;
 }
 
+interface BaiduOverlayWithEvents {
+  addEventListener?: (eventName: string, handler: (event?: BaiduMapClickEvent) => void) => void;
+}
+
 export interface BaiduMapGlobal {
+  Circle?: new (point: BaiduPoint, radius: number, options?: unknown) => unknown;
   Geolocation?: new () => BaiduGeolocationInstance;
   Icon: new (url: string, size: unknown, options?: BaiduIconOptions) => unknown;
+  Label?: new (text: string, options?: { offset?: unknown; position?: BaiduPoint }) => unknown;
   LocalSearch?: unknown;
   Map: new (container: HTMLElement) => BaiduMapInstance;
   Marker: new (point: BaiduPoint, options?: { enableClicking?: boolean; icon?: unknown }) => BaiduMarkerInstance;
   Point: new (lng: number, lat: number) => BaiduPoint;
+  Polyline?: new (points: BaiduPoint[], options?: unknown) => unknown;
   Size: new (width: number, height: number) => unknown;
 }
 
@@ -79,6 +99,16 @@ interface BaiduMapProviderOptions {
   getGlobal?: () => BaiduMapRuntime | undefined;
 }
 
+interface DistanceMeasurementSession {
+  clickHandler: (event?: BaiduMapClickEvent) => void;
+  doubleClickHandler: (event?: BaiduMapClickEvent) => void;
+  handlers: MapDistanceMeasurementHandlers;
+  isDrawing: boolean;
+  overlays: unknown[];
+  points: BaiduPoint[];
+  totalDistanceMeters: number;
+}
+
 const MARKER_LABEL_MIN_ZOOM = 16;
 const MARKER_LABEL_MAX_LENGTH = 14;
 
@@ -92,10 +122,15 @@ export class BaiduMapProvider implements MapProvider {
   private mapClickHandler: ((coordinate: MapCoordinate) => void) | null = null;
   private markerDragHandler: ((markerId: string, coordinate: MapCoordinate) => void) | null = null;
   private markerClickHandler: ((markerId: string) => void) | null = null;
+  private measurementClickHandler: ((measurementId: string) => void) | null = null;
+  private distanceMeasurementSession: DistanceMeasurementSession | null = null;
   private markerItems: MapMarkerItem[] = [];
   private markerOverlays: BaiduMarkerInstance[] = [];
+  private measurementItems: MapMeasurementItem[] = [];
+  private measurementOverlays: unknown[] = [];
   private poiPreview: MapPoiPreview | null = null;
   private poiPreviewOverlay: BaiduMarkerInstance | null = null;
+  private selectedMeasurementId: string | null = null;
   private selectedMarkerId: string | null = null;
 
   constructor(
@@ -139,13 +174,16 @@ export class BaiduMapProvider implements MapProvider {
     });
     this.setView(view);
     this.setLayer(this.layer);
+    this.renderMeasurements();
     this.renderMarkers();
     this.renderPoiPreview();
   }
 
   destroy() {
     this.isDestroyed = true;
+    this.stopDistanceMeasurement();
     this.clearMarkers();
+    this.clearMeasurements();
     this.clearPoiPreviewOverlay();
     this.map?.destroy?.();
     this.map = null;
@@ -240,6 +278,20 @@ export class BaiduMapProvider implements MapProvider {
     this.renderMarkers();
   }
 
+  setMeasurements(measurements: MapMeasurementItem[]) {
+    this.measurementItems = measurements;
+    this.renderMeasurements();
+    this.renderMarkers();
+    this.renderPoiPreview();
+  }
+
+  setSelectedMeasurement(measurementId: string | null) {
+    this.selectedMeasurementId = measurementId;
+    this.renderMeasurements();
+    this.renderMarkers();
+    this.renderPoiPreview();
+  }
+
   setSelectedMarker(markerId: string | null) {
     this.selectedMarkerId = markerId;
     this.renderMarkers();
@@ -255,8 +307,63 @@ export class BaiduMapProvider implements MapProvider {
     this.renderPoiPreview();
   }
 
+  async startDistanceMeasurement(handlers: MapDistanceMeasurementHandlers): Promise<MapDistanceMeasurementStartResult> {
+    const runtime = this.getRuntime();
+
+    if (!this.map || !runtime) {
+      return {
+        status: "failed",
+        code: "MAP_DISTANCE_TOOL_UNAVAILABLE",
+        message: "地图尚未就绪，无法开始测距",
+      };
+    }
+
+    if (!runtime.api.Polyline) {
+      return {
+        status: "failed",
+        code: "MAP_DISTANCE_TOOL_UNAVAILABLE",
+        message: "百度地图折线工具不可用",
+      };
+    }
+
+    this.stopDistanceMeasurement();
+
+    const session: DistanceMeasurementSession = {
+      clickHandler: (event) => this.addDistanceMeasurementPoint(event),
+      doubleClickHandler: (event) => this.finishDistanceMeasurement(event),
+      handlers,
+      isDrawing: true,
+      overlays: [],
+      points: [],
+      totalDistanceMeters: 0,
+    };
+
+    this.distanceMeasurementSession = session;
+    this.map.disableDoubleClickZoom?.();
+    this.map.addEventListener?.("click", session.clickHandler);
+    this.map.addEventListener?.("dblclick", session.doubleClickHandler);
+    return { status: "ready" };
+  }
+
+  stopDistanceMeasurement() {
+    const session = this.distanceMeasurementSession;
+
+    if (!session) {
+      return;
+    }
+
+    this.removeDistanceMeasurementListeners(session);
+    this.clearDistanceMeasurementOverlays(session);
+    this.map?.enableDoubleClickZoom?.();
+    this.distanceMeasurementSession = null;
+  }
+
   setMarkerClickHandler(handler: ((markerId: string) => void) | null) {
     this.markerClickHandler = handler;
+  }
+
+  setMeasurementClickHandler(handler: ((measurementId: string) => void) | null) {
+    this.measurementClickHandler = handler;
   }
 
   setMarkerDragHandler(handler: ((markerId: string, coordinate: MapCoordinate) => void) | null) {
@@ -273,6 +380,179 @@ export class BaiduMapProvider implements MapProvider {
 
   private getRuntime() {
     return this.options.getGlobal?.() ?? readBaiduMapRuntime();
+  }
+
+  private addDistanceMeasurementPoint(event: BaiduMapClickEvent | undefined) {
+    const session = this.distanceMeasurementSession;
+    const runtime = this.getRuntime();
+    const coordinate = readClickCoordinate(event);
+
+    if (!session?.isDrawing || !this.map || !runtime || !coordinate) {
+      return;
+    }
+
+    stopBaiduDomEvent(event);
+    const point = new runtime.api.Point(coordinate.lng, coordinate.lat);
+    const previousPoint = session.points[session.points.length - 1];
+    session.points.push(point);
+
+    if (previousPoint) {
+      session.totalDistanceMeters += this.map.getDistance?.(previousPoint, point) ?? calculateApproximateDistanceMeters(previousPoint, point);
+    }
+
+    this.renderDistanceMeasurement(session);
+    session.handlers.onPointAdded?.({
+      point: coordinate,
+      index: session.points.length - 1,
+      totalDistanceMeters: Math.round(session.totalDistanceMeters),
+    });
+  }
+
+  private finishDistanceMeasurement(event: BaiduMapClickEvent | undefined) {
+    const session = this.distanceMeasurementSession;
+
+    if (!session?.isDrawing) {
+      return;
+    }
+
+    stopBaiduDomEvent(event);
+    session.isDrawing = false;
+    this.removeDistanceMeasurementListeners(session);
+    this.map?.enableDoubleClickZoom?.();
+
+    if (session.points.length < 2) {
+      this.clearDistanceMeasurementOverlays(session);
+      session.handlers.onCompleted?.(null);
+      return;
+    }
+
+    session.handlers.onCompleted?.({
+      points: session.points.map(pointToCoordinate),
+      totalDistanceMeters: Math.round(session.totalDistanceMeters),
+    });
+  }
+
+  private renderDistanceMeasurement(session: DistanceMeasurementSession) {
+    if (!this.map) {
+      return;
+    }
+
+    const runtime = this.getRuntime();
+
+    if (!runtime?.api.Polyline) {
+      return;
+    }
+
+    this.clearDistanceMeasurementOverlays(session);
+
+    if (session.points.length >= 2) {
+      const line = new runtime.api.Polyline(session.points, {
+        strokeColor: "#2563eb",
+        strokeOpacity: 0.72,
+        strokeWeight: 3,
+      });
+      this.map.addOverlay(line);
+      session.overlays.push(line);
+    }
+
+    for (const point of session.points) {
+      if (!runtime.api.Circle) {
+        continue;
+      }
+
+      const dot = new runtime.api.Circle(point, 8, {
+        fillColor: "#ffffff",
+        fillOpacity: 0.95,
+        strokeColor: "#2563eb",
+        strokeOpacity: 0.9,
+        strokeWeight: 2,
+      });
+      this.map.addOverlay(dot);
+      session.overlays.push(dot);
+    }
+
+    const lastPoint = session.points[session.points.length - 1];
+    if (lastPoint && session.points.length >= 2 && runtime.api.Label) {
+      const label = new runtime.api.Label(formatDistanceMeters(session.totalDistanceMeters), {
+        offset: new runtime.api.Size(12, -28),
+        position: lastPoint,
+      });
+      this.map.addOverlay(label);
+      session.overlays.push(label);
+    }
+  }
+
+  private clearDistanceMeasurementOverlays(session: DistanceMeasurementSession) {
+    if (this.map) {
+      for (const overlay of session.overlays) {
+        this.map.removeOverlay(overlay);
+      }
+    }
+
+    session.overlays = [];
+  }
+
+  private removeDistanceMeasurementListeners(session: DistanceMeasurementSession) {
+    this.map?.removeEventListener?.("click", session.clickHandler);
+    this.map?.removeEventListener?.("dblclick", session.doubleClickHandler);
+  }
+
+  private renderMeasurements() {
+    if (!this.map) {
+      return;
+    }
+
+    const runtime = this.getRuntime();
+    if (!runtime?.api.Polyline) {
+      return;
+    }
+
+    this.clearMeasurements();
+
+    for (const measurement of this.measurementItems) {
+      if (measurement.points.length < 2) {
+        continue;
+      }
+
+      const isSelected = measurement.id === this.selectedMeasurementId;
+      const points = measurement.points.map((point) => new runtime.api.Point(point.lng, point.lat));
+      const line = new runtime.api.Polyline(points, {
+        strokeColor: isSelected ? "#2563eb" : "#475569",
+        strokeOpacity: isSelected ? 0.82 : 0.42,
+        strokeStyle: isSelected ? "solid" : "dashed",
+        strokeWeight: isSelected ? 4 : 2,
+      }) as BaiduOverlayWithEvents;
+      line.addEventListener?.("click", (event) => {
+        stopBaiduDomEvent(event);
+        this.measurementClickHandler?.(measurement.id);
+      });
+      this.map.addOverlay(line);
+      this.measurementOverlays.push(line);
+
+      if (isSelected && runtime.api.Label) {
+        const lastPoint = points[points.length - 1];
+        const label = new runtime.api.Label(`${measurement.name} · ${formatDistanceMeters(measurement.totalDistanceMeters)}`, {
+          offset: new runtime.api.Size(12, -28),
+          position: lastPoint,
+        }) as BaiduOverlayWithEvents;
+        label.addEventListener?.("click", (event) => {
+          stopBaiduDomEvent(event);
+          this.measurementClickHandler?.(measurement.id);
+        });
+        this.map.addOverlay(label);
+        this.measurementOverlays.push(label);
+      }
+    }
+  }
+
+  private clearMeasurements() {
+    if (this.map) {
+      for (const overlay of this.measurementOverlays) {
+        this.map.removeOverlay(overlay);
+      }
+    }
+
+    this.measurementOverlays = [];
   }
 
   private renderMarkers() {
@@ -553,6 +833,35 @@ function readLocationCoordinate(point: BaiduPoint | undefined): MapCoordinate | 
     lng: point.lng,
     lat: point.lat,
   };
+}
+
+function pointToCoordinate(point: BaiduPoint): MapCoordinate {
+  return {
+    lng: point.lng,
+    lat: point.lat,
+  };
+}
+
+function calculateApproximateDistanceMeters(start: BaiduPoint, end: BaiduPoint) {
+  const earthRadiusMeters = 6_371_000;
+  const startLat = degreesToRadians(start.lat);
+  const endLat = degreesToRadians(end.lat);
+  const deltaLat = degreesToRadians(end.lat - start.lat);
+  const deltaLng = degreesToRadians(end.lng - start.lng);
+  const a = Math.sin(deltaLat / 2) ** 2 + Math.cos(startLat) * Math.cos(endLat) * Math.sin(deltaLng / 2) ** 2;
+  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function degreesToRadians(degrees: number) {
+  return (degrees * Math.PI) / 180;
+}
+
+function formatDistanceMeters(distanceMeters: number) {
+  if (distanceMeters >= 1000) {
+    return `${(distanceMeters / 1000).toFixed(distanceMeters >= 10_000 ? 1 : 2)} km`;
+  }
+
+  return `${Math.round(distanceMeters)} m`;
 }
 
 function buildMarkerIconDataUrl(color: string, iconName: string, isSelected: boolean, label: string) {
