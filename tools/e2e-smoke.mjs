@@ -91,6 +91,9 @@ try {
       await dispatchDoubleClick(cdp, points.third.x, points.third.y);
       await waitForText(cdp, "保存测距记录");
 
+      await setInputById(cdp, "new-measurement-name", "");
+      await clickSubmitInFormWithId(cdp, "new-measurement-name");
+      await waitForText(cdp, "测距名称不能为空。");
       await setInputById(cdp, "new-measurement-name", "Smoke 测距");
       await setTextareaById(cdp, "new-measurement-note", "端到端测距备注");
       await clickSubmitInFormWithId(cdp, "new-measurement-name");
