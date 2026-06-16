@@ -382,6 +382,11 @@ function App() {
   }, []);
 
   const startMarkerCreationMode = useCallback(() => {
+    if (isDistanceMeasurementMode) {
+      setProjectActionError("请先双击结束测距，或取消当前测距模式。");
+      return;
+    }
+
     runWithMarkerDirtyGuard({
       message: "进入添加点位前，当前点位还有未保存的修改。",
       run: () => {
@@ -394,7 +399,7 @@ function App() {
         setActivePanel("markers");
       },
     });
-  }, [runWithMarkerDirtyGuard, setActivePanel]);
+  }, [isDistanceMeasurementMode, runWithMarkerDirtyGuard, setActivePanel]);
 
   const cancelMarkerCreationMode = useCallback(() => {
     setPendingMarker(null);
@@ -446,13 +451,16 @@ function App() {
 
   const handleCreateMarkerAtCenter = useCallback(
     (coordinate: MapCoordinate) => {
-      if (!projectWorkspace) {
+      if (!projectWorkspace || isDistanceMeasurementMode) {
+        if (isDistanceMeasurementMode) {
+          setProjectActionError("请先双击结束测距，或取消当前测距模式。");
+        }
         return;
       }
 
       beginPendingMarkerCreation(createPendingMarkerFromCenter(projectWorkspace.currentProject.id, coordinate));
     },
-    [beginPendingMarkerCreation, projectWorkspace],
+    [beginPendingMarkerCreation, isDistanceMeasurementMode, projectWorkspace],
   );
 
   const startDistanceMeasurementMode = useCallback(() => {
@@ -843,6 +851,12 @@ function App() {
         return false;
       }
 
+      if (actionId === "mode.cancel" && isDistanceMeasurementMode) {
+        dispatchAction(actionId, source);
+        cancelDistanceMeasurementMode();
+        return false;
+      }
+
       if (
         actionId === "project.new" ||
         actionId === "search.focus" ||
@@ -860,7 +874,7 @@ function App() {
 
       return undefined;
     },
-    [dispatchAction, openMarkerDeleteConfirm, runWithMarkerDirtyGuard, runWorkspaceAction],
+    [cancelDistanceMeasurementMode, dispatchAction, isDistanceMeasurementMode, openMarkerDeleteConfirm, runWithMarkerDirtyGuard, runWorkspaceAction],
   );
 
   useWorkspaceActionEvents(handleWorkspaceAction);
@@ -1038,6 +1052,11 @@ function App() {
         return;
       }
 
+      if (isDistanceMeasurementMode) {
+        setProjectActionError("请先双击结束测距，或取消当前测距模式。");
+        return;
+      }
+
       runWithMarkerDirtyGuard({
         message: "切换视图前，当前点位还有未保存的修改。",
         run: () => {
@@ -1047,7 +1066,7 @@ function App() {
         },
       });
     },
-    [activePanel, runWithMarkerDirtyGuard, setActivePanel],
+    [activePanel, isDistanceMeasurementMode, runWithMarkerDirtyGuard, setActivePanel],
   );
 
   if (!bootstrapStatus) {
