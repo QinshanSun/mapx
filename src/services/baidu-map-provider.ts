@@ -18,6 +18,11 @@ interface BaiduPoint {
   lat: number;
 }
 
+interface BaiduPixel {
+  x: number;
+  y: number;
+}
+
 interface BaiduMapInstance {
   addEventListener?: (eventName: string, handler: (event?: BaiduMapClickEvent) => void) => void;
   addOverlay(overlay: unknown): void;
@@ -28,6 +33,7 @@ interface BaiduMapInstance {
   getDistance?: (start: BaiduPoint, end: BaiduPoint) => number;
   getCenter(): BaiduPoint;
   getZoom(): number;
+  pixelToPoint?: (pixel: BaiduPixel) => BaiduPoint;
   removeOverlay(overlay: unknown): void;
   removeEventListener?: (eventName: string, handler: (event?: BaiduMapClickEvent) => void) => void;
   setMapType?: (mapType: unknown) => void;
@@ -82,6 +88,7 @@ export interface BaiduMapGlobal {
   LocalSearch?: unknown;
   Map: new (container: HTMLElement) => BaiduMapInstance;
   Marker: new (point: BaiduPoint, options?: { enableClicking?: boolean; icon?: unknown }) => BaiduMarkerInstance;
+  Pixel?: new (x: number, y: number) => BaiduPixel;
   Point: new (lng: number, lat: number) => BaiduPoint;
   Polyline?: new (points: BaiduPoint[], options?: unknown) => unknown;
   Size: new (width: number, height: number) => unknown;
@@ -100,10 +107,14 @@ interface BaiduMapProviderOptions {
 }
 
 interface DistanceMeasurementSession {
-  clickHandler: (event?: BaiduMapClickEvent) => void;
-  doubleClickHandler: (event?: BaiduMapClickEvent) => void;
+  clickHandler: (event?: BaiduMapClickEvent | MouseEvent) => void;
+  doubleClickHandler: (event?: BaiduMapClickEvent | MouseEvent) => void;
+  domClickHandler: ((event: MouseEvent) => void) | null;
+  domDoubleClickHandler: ((event: MouseEvent) => void) | null;
   handlers: MapDistanceMeasurementHandlers;
   isDrawing: boolean;
+  lastAcceptedCoordinate: MapCoordinate | null;
+  lastAcceptedAt: number;
   overlays: unknown[];
   points: BaiduPoint[];
   totalDistanceMeters: number;
@@ -185,7 +196,11 @@ export class BaiduMapProvider implements MapProvider {
     this.clearMarkers();
     this.clearMeasurements();
     this.clearPoiPreviewOverlay();
-    this.map?.destroy?.();
+    try {
+      this.map?.destroy?.();
+    } catch {
+      // Baidu GL can throw from internal cleanup after overlays are removed; MapX still owns the container teardown.
+    }
     this.map = null;
 
     if (this.container) {
@@ -331,8 +346,12 @@ export class BaiduMapProvider implements MapProvider {
     const session: DistanceMeasurementSession = {
       clickHandler: (event) => this.addDistanceMeasurementPoint(event),
       doubleClickHandler: (event) => this.finishDistanceMeasurement(event),
+      domClickHandler: null,
+      domDoubleClickHandler: null,
       handlers,
       isDrawing: true,
+      lastAcceptedCoordinate: null,
+      lastAcceptedAt: 0,
       overlays: [],
       points: [],
       totalDistanceMeters: 0,
@@ -342,6 +361,7 @@ export class BaiduMapProvider implements MapProvider {
     this.map.disableDoubleClickZoom?.();
     this.map.addEventListener?.("click", session.clickHandler);
     this.map.addEventListener?.("dblclick", session.doubleClickHandler);
+    this.addDistanceMeasurementDomFallback(session);
     return { status: "ready" };
   }
 
@@ -382,16 +402,22 @@ export class BaiduMapProvider implements MapProvider {
     return this.options.getGlobal?.() ?? readBaiduMapRuntime();
   }
 
-  private addDistanceMeasurementPoint(event: BaiduMapClickEvent | undefined) {
+  private addDistanceMeasurementPoint(event: BaiduMapClickEvent | MouseEvent | undefined) {
     const session = this.distanceMeasurementSession;
     const runtime = this.getRuntime();
-    const coordinate = readClickCoordinate(event);
+    const coordinate = this.readDistanceMeasurementCoordinate(event);
 
     if (!session?.isDrawing || !this.map || !runtime || !coordinate) {
       return;
     }
 
+    if (shouldIgnoreDuplicateMeasurementPoint(session, coordinate)) {
+      return;
+    }
+
     stopBaiduDomEvent(event);
+    session.lastAcceptedCoordinate = coordinate;
+    session.lastAcceptedAt = Date.now();
     const point = new runtime.api.Point(coordinate.lng, coordinate.lat);
     const previousPoint = session.points[session.points.length - 1];
     session.points.push(point);
@@ -408,7 +434,7 @@ export class BaiduMapProvider implements MapProvider {
     });
   }
 
-  private finishDistanceMeasurement(event: BaiduMapClickEvent | undefined) {
+  private finishDistanceMeasurement(event: BaiduMapClickEvent | MouseEvent | undefined) {
     const session = this.distanceMeasurementSession;
 
     if (!session?.isDrawing) {
@@ -430,6 +456,37 @@ export class BaiduMapProvider implements MapProvider {
       points: session.points.map(pointToCoordinate),
       totalDistanceMeters: Math.round(session.totalDistanceMeters),
     });
+  }
+
+  private readDistanceMeasurementCoordinate(event: BaiduMapClickEvent | MouseEvent | undefined) {
+    return readClickCoordinate(event) ?? this.readDomEventCoordinate(event);
+  }
+
+  private readDomEventCoordinate(event: BaiduMapClickEvent | MouseEvent | undefined): MapCoordinate | null {
+    if (!this.map || !this.container || !isMouseEventLike(event)) {
+      return null;
+    }
+
+    const runtime = this.getRuntime();
+    if (!runtime?.api.Pixel || !this.map.pixelToPoint) {
+      return null;
+    }
+
+    const bounds = this.container.getBoundingClientRect();
+    const pixel = new runtime.api.Pixel(event.clientX - bounds.left, event.clientY - bounds.top);
+    const point = this.map.pixelToPoint(pixel);
+    return pointToCoordinate(point);
+  }
+
+  private addDistanceMeasurementDomFallback(session: DistanceMeasurementSession) {
+    if (!this.container?.addEventListener || !this.map?.pixelToPoint || !this.getRuntime()?.api.Pixel) {
+      return;
+    }
+
+    session.domClickHandler = (event) => this.addDistanceMeasurementPoint(event);
+    session.domDoubleClickHandler = (event) => this.finishDistanceMeasurement(event);
+    this.container.addEventListener("click", session.domClickHandler);
+    this.container.addEventListener("dblclick", session.domDoubleClickHandler);
   }
 
   private renderDistanceMeasurement(session: DistanceMeasurementSession) {
@@ -495,6 +552,12 @@ export class BaiduMapProvider implements MapProvider {
   private removeDistanceMeasurementListeners(session: DistanceMeasurementSession) {
     this.map?.removeEventListener?.("click", session.clickHandler);
     this.map?.removeEventListener?.("dblclick", session.doubleClickHandler);
+    if (this.container && session.domClickHandler) {
+      this.container.removeEventListener("click", session.domClickHandler);
+    }
+    if (this.container && session.domDoubleClickHandler) {
+      this.container.removeEventListener("dblclick", session.domDoubleClickHandler);
+    }
   }
 
   private renderMeasurements() {
@@ -767,8 +830,8 @@ export function readBaiduMapRuntime() {
   };
 }
 
-function readClickCoordinate(event: BaiduMapClickEvent | undefined): MapCoordinate | null {
-  if (!event) {
+function readClickCoordinate(event: BaiduMapClickEvent | MouseEvent | undefined): MapCoordinate | null {
+  if (!event || isMouseEventLike(event)) {
     return null;
   }
 
@@ -784,9 +847,19 @@ function readClickCoordinate(event: BaiduMapClickEvent | undefined): MapCoordina
   };
 }
 
-function stopBaiduDomEvent(event: BaiduMapClickEvent | undefined) {
-  event?.domEvent?.preventDefault?.();
-  event?.domEvent?.stopPropagation?.();
+function stopBaiduDomEvent(event: BaiduMapClickEvent | MouseEvent | undefined) {
+  if (!event) {
+    return;
+  }
+
+  if (isMouseEventLike(event)) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+
+  event.domEvent?.preventDefault?.();
+  event.domEvent?.stopPropagation?.();
 }
 
 function readMarkerPosition(marker: BaiduMarkerInstance): MapCoordinate | null {
@@ -840,6 +913,21 @@ function pointToCoordinate(point: BaiduPoint): MapCoordinate {
     lng: point.lng,
     lat: point.lat,
   };
+}
+
+function isMouseEventLike(event: BaiduMapClickEvent | MouseEvent | undefined): event is MouseEvent {
+  return Boolean(event && "clientX" in event && "clientY" in event);
+}
+
+function shouldIgnoreDuplicateMeasurementPoint(session: DistanceMeasurementSession, coordinate: MapCoordinate) {
+  const previousCoordinate = session.lastAcceptedCoordinate;
+
+  if (!previousCoordinate) {
+    return false;
+  }
+
+  const isNearPreviousCoordinate = Math.abs(previousCoordinate.lng - coordinate.lng) < 0.000001 && Math.abs(previousCoordinate.lat - coordinate.lat) < 0.000001;
+  return isNearPreviousCoordinate && Date.now() - session.lastAcceptedAt < 80;
 }
 
 function calculateApproximateDistanceMeters(start: BaiduPoint, end: BaiduPoint) {

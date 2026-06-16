@@ -112,6 +112,24 @@ describe("baidu map provider", () => {
     expect(provider.getView()).toEqual({ center: { lng: 113.2644, lat: 23.1291 }, zoom: 11 });
   });
 
+  it("keeps MapX teardown stable when Baidu destroy throws", async () => {
+    const fake = createFakeApi();
+    const container = createContainer();
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(container, { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+    fake.instances[0].destroy.mockImplementationOnce(() => {
+      throw new Error("clearData failed");
+    });
+
+    expect(() => provider.destroy()).not.toThrow();
+    expect(container.replaceChildren).toHaveBeenCalledTimes(1);
+    expect(provider.getView()).toBeNull();
+  });
+
   it("does not create a map if destroyed while the script is loading", async () => {
     const fake = createFakeApi();
     let resolveLoad!: (result: { status: "loaded" }) => void;
@@ -401,6 +419,45 @@ describe("baidu map provider", () => {
     expect(fake.instances[0].enableDoubleClickZoom).toHaveBeenCalledTimes(1);
   });
 
+  it("falls back to provider-owned DOM events when Baidu map click events are unavailable", async () => {
+    const fake = createFakeApi();
+    const onPointAdded = vi.fn();
+    const onCompleted = vi.fn();
+    const container = createContainer();
+    container.getBoundingClientRect = vi.fn(() => ({
+      bottom: 720,
+      height: 720,
+      left: 10,
+      right: 970,
+      top: 20,
+      width: 960,
+      x: 10,
+      y: 20,
+      toJSON: () => ({}),
+    }));
+    const provider = new BaiduMapProvider("test-ak", {
+      loadScript: () => Promise.resolve({ status: "loaded" }),
+      getGlobal: () => fake.runtime,
+    });
+
+    await provider.init(container, { center: { lng: 121.4737, lat: 31.2304 }, zoom: 12 });
+    await provider.startDistanceMeasurement({ onPointAdded, onCompleted });
+
+    container.dispatchEvent(createMouseEvent("click", 1215, 332));
+    container.dispatchEvent(createMouseEvent("click", 1220, 334));
+    container.dispatchEvent(createMouseEvent("dblclick", 1220, 334));
+
+    expect(fake.instances[0].pixelToPoint).toHaveBeenCalledWith({ x: 1205, y: 312 });
+    expect(onPointAdded).toHaveBeenCalledWith({ point: { lng: 20.5, lat: 31.2 }, index: 0, totalDistanceMeters: 0 });
+    expect(onCompleted).toHaveBeenCalledWith({
+      points: [
+        { lng: 20.5, lat: 31.2 },
+        { lng: 21, lat: 31.4 },
+      ],
+      totalDistanceMeters: 1000,
+    });
+  });
+
   it("renders saved measurements as weak map overlays and supports selecting them", async () => {
     const fake = createFakeApi();
     const onMeasurementClick = vi.fn();
@@ -523,9 +580,49 @@ describe("baidu map provider", () => {
 });
 
 function createContainer() {
-  return {
+  const listeners = new Map<string, Array<(event: Event) => void>>();
+
+  const container = {
+    addEventListener: vi.fn((eventName: string, handler: (event: Event) => void) => {
+      listeners.set(eventName, [...(listeners.get(eventName) ?? []), handler]);
+    }),
+    dispatchEvent: vi.fn((event: Event) => {
+      for (const handler of listeners.get(event.type) ?? []) {
+        handler(event);
+      }
+      return true;
+    }),
+    getBoundingClientRect: vi.fn(() => ({
+      bottom: 0,
+      height: 0,
+      left: 0,
+      right: 0,
+      top: 0,
+      width: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    })),
+    removeEventListener: vi.fn((eventName: string, handler: (event: Event) => void) => {
+      listeners.set(
+        eventName,
+        (listeners.get(eventName) ?? []).filter((currentHandler) => currentHandler !== handler),
+      );
+    }),
     replaceChildren: vi.fn(),
-  } as unknown as HTMLElement;
+  };
+
+  return container as unknown as HTMLElement;
+}
+
+function createMouseEvent(type: string, clientX: number, clientY: number) {
+  return {
+    clientX,
+    clientY,
+    preventDefault: vi.fn(),
+    stopPropagation: vi.fn(),
+    type,
+  } as unknown as Event;
 }
 
 function createFakeApi(options: { geolocationResult?: { point?: { lng: number; lat: number } }; geolocationStatus?: number } = {}) {
@@ -572,6 +669,12 @@ function createFakeApi(options: { geolocationResult?: { point?: { lng: number; l
         super(point, options);
         markers.push(this);
       }
+    },
+    Pixel: class {
+      constructor(
+        readonly x: number,
+        readonly y: number,
+      ) {}
     },
     Point: class {
       constructor(
@@ -651,6 +754,7 @@ class FakeMap {
   readonly enableDoubleClickZoom = vi.fn();
   readonly enableScrollWheelZoom = vi.fn();
   readonly getDistance = vi.fn(() => 1000);
+  readonly pixelToPoint = vi.fn((pixel: { x: number; y: number }) => ({ lng: (pixel.x - 1000) / 10, lat: pixel.y / 10 }));
   readonly removeOverlay = vi.fn();
   readonly removeEventListener = vi.fn((eventName: string, handler: (event?: { latlng?: { lng: number; lat: number }; point?: { lng: number; lat: number } }) => void) => {
     if (eventName === "click") {

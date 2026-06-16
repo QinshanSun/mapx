@@ -37,9 +37,15 @@ Issue: https://github.com/QinshanSun/mapx/issues/76
 - `npm run test -- src/services/baidu-map-provider.test.ts src/services/mock-map-provider.test.ts`
 - `npm run typecheck`
 - `BAIDU_MAP_AK=<redacted> node tools/distance-tool-smoke.mjs`
+- `BAIDU_MAP_AK=<redacted> MAPX_DISTANCE_SMOKE_PORT=1437 MAPX_DISTANCE_SMOKE_DEBUG_PORT=9337 node tools/distance-tool-smoke.mjs`
+- `BAIDU_MAP_AK=<redacted> MAPX_SMOKE_PORT=1439 MAPX_SMOKE_DEBUG_PORT=9339 MAPX_SMOKE_TIMEOUT_MS=90000 npm run smoke:e2e`
+
+2026-06-16 复测自绘 provider 实现：真实 Baidu GL runtime 中可启动测距、单击取得 3 个普通坐标点、双击完成返回 `1738` 米，停止测距后不会继续响应点击，provider 销毁不再抛出百度内部 `clearData` 异常。
+
+2026-06-16 复测真实浏览器 UI：通过设置页保存 AK 后，地图进入 ready 状态；测距工具可单击添加点、双击结束，保存弹窗可创建测距记录，右侧详情可编辑名称/备注，删除确认后项目概览测距列表刷新为空。
 
 ## Remaining Risk
 
-- 还没有在真实 Tauri WebView + 百度地图中执行自绘测距 smoke。
+- 还没有在真实 Tauri WebView + 百度地图中执行自绘测距 smoke；当前已覆盖真实浏览器 + 百度地图 runtime。
 - `DistanceTool` 脚本域名不进入正式 V1 运行时依赖；如果未来重新引入，需要单独加入安全白名单验证。
-- measurements 的 SQLite 持久化、列表/详情、保存弹窗和删除确认仍需后续 issue 实现。
+- measurements 的 SQLite 持久化、列表/详情、保存弹窗和删除确认已在后续实现中接入，仍需真实打包应用手动验收。

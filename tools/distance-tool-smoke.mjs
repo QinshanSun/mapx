@@ -14,7 +14,7 @@ const OVERALL_TIMEOUT_MS = Number(process.env.MAPX_DISTANCE_SMOKE_TIMEOUT_MS ?? 
 const BAIDU_MAP_AK = process.env.BAIDU_MAP_AK?.trim();
 
 if (!BAIDU_MAP_AK) {
-  throw new Error("Set BAIDU_MAP_AK to run the DistanceTool smoke. The script redacts it from output.");
+  throw new Error("Set BAIDU_MAP_AK to run the MapX distance measurement smoke. The script redacts it from output.");
 }
 
 const chromePath = findChromePath();
@@ -68,10 +68,14 @@ try {
           completedSet: false,
           completed: null,
           start: null,
+          domEvents: [],
         };
-        window.__mapxDistanceSmoke = { provider, state };
-        await provider.init(container, { center: { lng: 121.4737, lat: 31.2304 }, zoom: 15 });
-        state.start = await provider.startDistanceMeasurement({
+        for (const eventName of ['mousedown', 'mouseup', 'click', 'dblclick']) {
+          container.addEventListener(eventName, (event) => {
+            state.domEvents.push({ type: event.type, x: event.clientX, y: event.clientY, detail: event.detail });
+          });
+        }
+        const startMeasurement = () => provider.startDistanceMeasurement({
           onPointAdded: (point) => state.addedPoints.push(point),
           onCompleted: (result) => {
             state.completedSet = true;
@@ -81,6 +85,9 @@ try {
             state.cleared += 1;
           },
         });
+        window.__mapxDistanceSmoke = { provider, state, startMeasurement };
+        await provider.init(container, { center: { lng: 121.4737, lat: 31.2304 }, zoom: 15 });
+        state.start = await startMeasurement();
         return { start: state.start, hasBMapGL: Boolean(window.BMapGL) };
       }))()`,
     );
@@ -89,10 +96,49 @@ try {
       throw new Error(`MapX distance measurement did not start: ${JSON.stringify(setup.value?.start)}`);
     }
 
+    await delay(2000);
+    await dispatchClick(cdp, 350, 330);
+    await dispatchClick(cdp, 470, 330);
+    await waitForExpression(cdp, "window.__mapxDistanceSmoke && window.__mapxDistanceSmoke.state.addedPoints.length >= 2", DEFAULT_TIMEOUT_MS, "MapX measurement cancel points");
+    const beforeCancel = await readSmokeState(cdp);
+    await evaluateOrThrow(cdp, "window.__mapxDistanceSmoke.provider.stopDistanceMeasurement(); true");
+    await dispatchClick(cdp, 590, 390);
+    await delay(500);
+    const afterCancel = await readSmokeState(cdp);
+
+    if (afterCancel.addedPointCount !== beforeCancel.addedPointCount) {
+      throw new Error(`Measurement stop left active click listeners: ${JSON.stringify({ beforeCancel, afterCancel }, null, 2)}`);
+    }
+
+    const restart = await evaluateOrThrow(
+      cdp,
+      `(() => {
+        const smoke = window.__mapxDistanceSmoke;
+        smoke.state.addedPoints = [];
+        smoke.state.cleared = 0;
+        smoke.state.completedSet = false;
+        smoke.state.completed = null;
+        smoke.state.domEvents = [];
+        return smoke.startMeasurement().then((start) => {
+          smoke.state.start = start;
+          return start;
+        });
+      })()`,
+    );
+
+    if (restart.value?.status !== "ready") {
+      throw new Error(`MapX distance measurement did not restart: ${JSON.stringify(restart.value)}`);
+    }
+
     await dispatchClick(cdp, 350, 330);
     await dispatchClick(cdp, 470, 330);
     await dispatchDoubleClick(cdp, 590, 390);
-    await waitForExpression(cdp, "Boolean(window.__mapxDistanceSmoke && window.__mapxDistanceSmoke.state.completedSet)", DEFAULT_TIMEOUT_MS, "DistanceTool drawend");
+    try {
+      await waitForExpression(cdp, "Boolean(window.__mapxDistanceSmoke && window.__mapxDistanceSmoke.state.completedSet)", DEFAULT_TIMEOUT_MS, "MapX measurement completion");
+    } catch (error) {
+      const diagnostics = await readSmokeState(cdp).catch((diagnosticError) => ({ diagnosticError: String(diagnosticError) }));
+      throw new Error(`${error.message}: ${JSON.stringify(diagnostics, null, 2)}`);
+    }
 
     const beforeStop = await readSmokeState(cdp);
     await evaluateOrThrow(cdp, "window.__mapxDistanceSmoke.provider.stopDistanceMeasurement(); true");
@@ -110,6 +156,10 @@ try {
       })()`,
     );
 
+    if (!destroy.value?.ok) {
+      throw new Error(`Provider destroy failed after measurement completion: ${destroy.value?.message ?? "unknown error"}`);
+    }
+
     console.log(
       JSON.stringify(
         {
@@ -117,13 +167,16 @@ try {
           appUrl: APP_URL,
           akSource: "BAIDU_MAP_AK (redacted)",
           setup: setup.value,
+          beforeCancel,
+          afterCancel,
           beforeStop,
           afterStop,
           destroy: destroy.value,
           conclusion: {
             canStartProviderMeasurement: setup.value?.start?.status === "ready",
+            stopDuringDrawingRemovedListeners: afterCancel.addedPointCount === beforeCancel.addedPointCount,
             canCapturePointsAndDistance: Boolean(beforeStop.completed && beforeStop.completed.points.length >= 2 && beforeStop.completed.totalDistanceMeters > 0),
-            stopAfterDrawendRemovedDomNodes: afterStop.mapDomNodeCount < beforeStop.mapDomNodeCount,
+            destroyDidNotThrow: destroy.value.ok,
           },
         },
         null,
@@ -155,6 +208,7 @@ async function readSmokeState(cdp) {
         cleared: state.cleared,
         completedSet: state.completedSet,
         completed: state.completed,
+        domEvents: state.domEvents,
         mapDomNodeCount: map ? map.querySelectorAll('*').length : 0,
         bodyText: document.body.innerText.slice(0, 300),
       };

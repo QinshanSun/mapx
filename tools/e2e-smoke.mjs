@@ -11,6 +11,7 @@ const DEBUG_PORT = Number(process.env.MAPX_SMOKE_DEBUG_PORT ?? 9331);
 const APP_URL = `http://127.0.0.1:${APP_PORT}`;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const OVERALL_TIMEOUT_MS = Number(process.env.MAPX_SMOKE_TIMEOUT_MS ?? 60_000);
+const BAIDU_MAP_AK = process.env.BAIDU_MAP_AK?.trim();
 
 const chromePath = findChromePath();
 const userDataDir = mkdtempSync(path.join(tmpdir(), "mapx-smoke-chrome-"));
@@ -49,6 +50,15 @@ try {
 
   try {
     await cdp.send("Runtime.enable");
+    const checks = [
+      "app-started",
+      "missing-ak-settings-entry",
+      "project-created",
+      "backup-settings-visible",
+      "log-directory-entry-visible",
+      "locate-me-entry-visible",
+    ];
+
     await waitForText(cdp, "MapX");
     await waitForText(cdp, "百度 AK：未配置");
     await waitForText(cdp, "定位");
@@ -66,24 +76,54 @@ try {
     await waitForText(cdp, "打开备份目录");
     await waitForText(cdp, "打开日志目录");
 
+    if (BAIDU_MAP_AK) {
+      await setInputById(cdp, "settings-baidu-ak", BAIDU_MAP_AK);
+      await clickButtonByText(cdp, "保存 AK");
+      await waitForText(cdp, "百度 AK：已配置");
+      await waitForSelector(cdp, '[data-testid="map-zoom-in"]', 45_000);
+
+      await clickButtonByText(cdp, "测距");
+      await waitForText(cdp, "单击添加测距点，双击结束并保存");
+
+      const points = await getMapCanvasSmokePoints(cdp);
+      await dispatchClick(cdp, points.first.x, points.first.y);
+      await dispatchClick(cdp, points.second.x, points.second.y);
+      await dispatchDoubleClick(cdp, points.third.x, points.third.y);
+      await waitForText(cdp, "保存测距记录");
+
+      await setInputById(cdp, "new-measurement-name", "Smoke 测距");
+      await setTextareaById(cdp, "new-measurement-note", "端到端测距备注");
+      await clickSubmitInFormWithId(cdp, "new-measurement-name");
+      await waitForText(cdp, "测距详情");
+      await waitForText(cdp, "Smoke 测距");
+      await waitForText(cdp, "端到端测距备注");
+
+      await clickButtonByText(cdp, "编辑");
+      await setInputById(cdp, "measurement-name", "Smoke 测距已编辑");
+      await setTextareaById(cdp, "measurement-note", "更新后的测距备注");
+      await clickSubmitInFormWithId(cdp, "measurement-name");
+      await waitForText(cdp, "Smoke 测距已编辑");
+      await waitForText(cdp, "更新后的测距备注");
+
+      await clickButtonByText(cdp, "删除");
+      await waitForText(cdp, "确认删除“Smoke 测距已编辑”？");
+      await clickButtonByText(cdp, "删除测距");
+      await waitForText(cdp, "暂无测距记录。");
+      checks.push("measurement-ui-create-save-edit-delete");
+    }
+
     await clickButtonByText(cdp, "中心点");
     await waitForText(cdp, "待保存点位");
     await waitForText(cdp, "新建点位");
+    checks.push("marker-create-form-opened");
 
     console.log(
       JSON.stringify(
         {
           status: "passed",
           appUrl: APP_URL,
-          checks: [
-            "app-started",
-            "missing-ak-settings-entry",
-            "project-created",
-            "backup-settings-visible",
-            "log-directory-entry-visible",
-            "locate-me-entry-visible",
-            "marker-create-form-opened",
-          ],
+          akSource: BAIDU_MAP_AK ? "BAIDU_MAP_AK (redacted)" : "not set",
+          checks,
         },
         null,
         2,
@@ -361,6 +401,83 @@ async function clickButtonByText(cdp, text) {
       return true;
     })()`,
   );
+}
+
+async function setInputById(cdp, id, value) {
+  await evaluateOrThrow(
+    cdp,
+    `(() => {
+      const input = document.getElementById(${JSON.stringify(id)});
+      if (!(input instanceof HTMLInputElement)) throw new Error('Missing input id: ${id}');
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(input, ${JSON.stringify(value)});
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`,
+  );
+}
+
+async function setTextareaById(cdp, id, value) {
+  await evaluateOrThrow(
+    cdp,
+    `(() => {
+      const textarea = document.getElementById(${JSON.stringify(id)});
+      if (!(textarea instanceof HTMLTextAreaElement)) throw new Error('Missing textarea id: ${id}');
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+      setter.call(textarea, ${JSON.stringify(value)});
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      textarea.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`,
+  );
+}
+
+async function clickSubmitInFormWithId(cdp, id) {
+  await evaluateOrThrow(
+    cdp,
+    `(() => {
+      const input = document.getElementById(${JSON.stringify(id)});
+      const form = input && input.closest('form');
+      const submit = form && form.querySelector('button[type="submit"]');
+      if (!submit) throw new Error('Missing submit button for field id: ${id}');
+      submit.click();
+      return true;
+    })()`,
+  );
+}
+
+async function getMapCanvasSmokePoints(cdp) {
+  const result = await evaluateOrThrow(
+    cdp,
+    `(() => {
+      const canvas = document.querySelector('[aria-label="百度地图画布"]');
+      if (!canvas) throw new Error('Missing map canvas');
+      const rect = canvas.getBoundingClientRect();
+      return {
+        first: { x: Math.round(rect.left + rect.width * 0.35), y: Math.round(rect.top + rect.height * 0.45) },
+        second: { x: Math.round(rect.left + rect.width * 0.52), y: Math.round(rect.top + rect.height * 0.45) },
+        third: { x: Math.round(rect.left + rect.width * 0.66), y: Math.round(rect.top + rect.height * 0.55) },
+      };
+    })()`,
+  );
+
+  return result.value;
+}
+
+async function dispatchClick(cdp, x, y) {
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 });
+  await delay(250);
+}
+
+async function dispatchDoubleClick(cdp, x, y) {
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 2 });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 2 });
 }
 
 async function setInputByPlaceholder(cdp, placeholder, value) {
