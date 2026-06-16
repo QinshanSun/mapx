@@ -108,25 +108,76 @@ jobs:
         working-directory: src-tauri
         run: cargo test
 
-  build-release:
-    name: Build release (${{ matrix.platform.name }})
-    runs-on: ${{ matrix.platform.runner }}
+  prepare-release:
+    name: Prepare GitHub release
+    runs-on: ubuntu-latest
     needs:
       - validate
       - frontend-gate
       - rust-gate
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
 
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        platform:
-          - name: macOS
-            runner: macos-latest
-            bundles: dmg
-          - name: Windows
-            runner: windows-latest
-            bundles: msi
+    steps:
+      - name: Create release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ needs.validate.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          cat > release-notes.md <<'EOF'
+          ## 安装提醒
+
+          这是 MapX 的未签名测试版，需要手动下载安装。
+
+          - macOS 可能提示 "MapX is damaged and can't be opened"。这是未签名、未公证测试版被 Gatekeeper 拦截导致的。把 MapX 拖入 Applications 后，可在 Terminal 执行：
+
+            ```sh
+            xattr -dr com.apple.quarantine /Applications/MapX.app
+            open /Applications/MapX.app
+            ```
+
+          - Windows 可能出现 SmartScreen 提示，需要用户手动确认继续安装。
+          - 百度地图能力需要在应用设置中配置自己的百度地图开放平台 AK。
+          - MapX 数据保存在系统 app data 目录；升级前建议确认自动备份目录中已有近期备份。
+
+          EOF
+
+          gh api "repos/${REPOSITORY}/releases/generate-notes" \
+            -f tag_name="${TAG_NAME}" \
+            -f target_commitish="${TAG_NAME}" \
+            --jq .body >> release-notes.md
+
+      - name: Create or update GitHub release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ needs.validate.outputs.tag }}
+        shell: bash
+        run: |
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            gh release edit "${TAG_NAME}" \
+              --title "MapX ${TAG_NAME}" \
+              --notes-file release-notes.md \
+              --prerelease
+          else
+            gh release create "${TAG_NAME}" \
+              --title "MapX ${TAG_NAME}" \
+              --notes-file release-notes.md \
+              --prerelease \
+              --verify-tag
+          fi
+
+          RELEASE_ID="$(gh release view "${TAG_NAME}" --json id --jq .id)"
+          echo "release_id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
+
+  build-macos-release:
+    name: Build release (macOS)
+    runs-on: macos-latest
+    needs:
+      - validate
+      - prepare-release
 
     steps:
       - name: Checkout
@@ -146,30 +197,48 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and upload release bundle
+      - name: Build unsigned macOS DMG
+        run: npm run tauri:build
+
+      - name: Upload macOS DMG
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ needs.validate.outputs.tag }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: gh release upload "${TAG_NAME}" src-tauri/target/release/bundle/dmg/MapX_${VERSION}_*.dmg --clobber
+
+  build-windows-release:
+    name: Build release (Windows)
+    runs-on: windows-latest
+    needs:
+      - validate
+      - prepare-release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and upload Windows MSI
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          releaseId: ${{ needs.prepare-release.outputs.release_id }}
           tagName: ${{ needs.validate.outputs.tag }}
-          releaseName: MapX ${{ needs.validate.outputs.tag }}
-          releaseBody: |
-            ## 安装提醒
-
-            这是 MapX 的未签名测试版，需要手动下载安装。
-
-            - macOS 可能提示 "MapX is damaged and can't be opened"。这是未签名、未公证测试版被 Gatekeeper 拦截导致的。把 MapX 拖入 Applications 后，可在 Terminal 执行：
-
-              ```sh
-              xattr -dr com.apple.quarantine /Applications/MapX.app
-              open /Applications/MapX.app
-              ```
-
-            - Windows 可能出现 SmartScreen 提示，需要用户手动确认继续安装。
-            - 百度地图能力需要在应用设置中配置自己的百度地图开放平台 AK。
-            - MapX 数据保存在系统 app data 目录；升级前建议确认自动备份目录中已有近期备份。
-          releaseDraft: false
-          prerelease: true
-          generateReleaseNotes: true
-          args: --ci --no-sign --bundles ${{ matrix.platform.bundles }}
+          args: --ci --no-sign --bundles msi
           retryAttempts: 2

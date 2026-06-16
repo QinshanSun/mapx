@@ -64,3 +64,12 @@ Run the same version check locally before tagging:
 ```sh
 node tools/verify-release-version.mjs v0.1.0
 ```
+
+## Local macOS Bundle Check
+
+On macOS, `npm run tauri:build` builds an unsigned `MapX.app` and then creates an APFS `.dmg` with `hdiutil`. The APFS step avoids local HFS+ image creation failures seen on newer macOS versions while keeping the release artifact as a manual-install DMG.
+
+```sh
+npm run tauri:build
+ls src-tauri/target/release/bundle/dmg/*.dmg
+```
