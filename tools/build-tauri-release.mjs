@@ -31,6 +31,7 @@ run("tauri", ["build", "--ci", "--no-sign", "--bundles", "app"], { cwd: repoRoot
 
 rmSync(dmgSourceDir, { recursive: true, force: true });
 rmSync(dmgPath, { force: true });
+mkdirSync(dmgDir, { recursive: true });
 mkdirSync(dmgSourceDir, { recursive: true });
 cpSync(appPath, path.join(dmgSourceDir, "MapX.app"), { recursive: true });
 symlinkSync("/Applications", path.join(dmgSourceDir, "Applications"));
