@@ -154,22 +154,25 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ needs.validate.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
-          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+          if gh release view "${TAG_NAME}" --repo "${REPOSITORY}" >/dev/null 2>&1; then
             gh release edit "${TAG_NAME}" \
+              --repo "${REPOSITORY}" \
               --title "MapX ${TAG_NAME}" \
               --notes-file release-notes.md \
               --prerelease
           else
             gh release create "${TAG_NAME}" \
+              --repo "${REPOSITORY}" \
               --title "MapX ${TAG_NAME}" \
               --notes-file release-notes.md \
               --prerelease \
               --verify-tag
           fi
 
-          RELEASE_ID="$(gh release view "${TAG_NAME}" --json id --jq .id)"
+          RELEASE_ID="$(gh release view "${TAG_NAME}" --repo "${REPOSITORY}" --json id --jq .id)"
           echo "release_id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
 
   build-macos-release:
