@@ -258,7 +258,7 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --ci --bundles msi
-          uploadUpdaterJson: false
+          includeUpdaterJson: false
           retryAttempts: 2
 
   publish-updater-json:
