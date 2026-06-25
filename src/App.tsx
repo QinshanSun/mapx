@@ -59,12 +59,22 @@ import {
   checkForAppUpdate,
   downloadAvailableAppUpdate,
   formatUpdateProgress,
-  getUpdateErrorMessage,
   installDownloadedAppUpdate,
   openUpdateDownloadPage,
   type AvailableAppUpdate,
-  type UpdateDownloadProgress,
 } from "@/services/update-service";
+import {
+  failUpdateCheck,
+  failUpdateDownload,
+  finishUpdateDownload,
+  initialUpdateState,
+  progressUpdateDownload,
+  resolveUpdateCheck,
+  shouldShowUpdateDialog,
+  startUpdateCheck,
+  startUpdateDownload,
+  type AppUpdateState,
+} from "@/services/update-state";
 import { resolveWorkspaceDetailTitle } from "@/services/workspace-detail-title";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { BootstrapStatus } from "@/types/bootstrap";
@@ -94,12 +104,6 @@ interface DirtyPromptState {
   error: string | null;
   isSaving: boolean;
 }
-
-type UpdateDialogState =
-  | { status: "available"; update: AvailableAppUpdate; source: "startup" | "manual" }
-  | { status: "downloading"; update: AvailableAppUpdate; progress: UpdateDownloadProgress | null }
-  | { status: "downloaded"; update: AvailableAppUpdate }
-  | { status: "error"; update: AvailableAppUpdate | null; message: string };
 
 function App() {
   const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapStatus | null>(null);
@@ -138,7 +142,7 @@ function App() {
   const [measurementFormNote, setMeasurementFormNote] = useState("");
   const [pendingDeleteMeasurement, setPendingDeleteMeasurement] = useState<MeasurementRecord | null>(null);
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | null>(null);
-  const [updateDialog, setUpdateDialog] = useState<UpdateDialogState | null>(null);
+  const [updateState, setUpdateState] = useState<AppUpdateState>(initialUpdateState);
   const [isProjectSaving, setIsProjectSaving] = useState(false);
   const [isProjectRenaming, setIsProjectRenaming] = useState(false);
   const [isProjectDeleting, setIsProjectDeleting] = useState(false);
@@ -191,6 +195,7 @@ function App() {
       })),
     [measurements],
   );
+  const updateDialog = shouldShowUpdateDialog(updateState) ? updateState : null;
   const handleSettingsError = useCallback((error: unknown) => {
     setFirstLaunchError(getBackendErrorMessage(error));
   }, []);
@@ -273,15 +278,15 @@ function App() {
     }
 
     startupUpdateCheckRef.current = true;
+    setUpdateState(startUpdateCheck("startup"));
 
     checkForAppUpdate()
       .then((result) => {
-        if (result.status === "available") {
-          setUpdateDialog({ status: "available", update: result.update, source: "startup" });
-        }
+        setUpdateState(resolveUpdateCheck("startup", result));
       })
       .catch((error) => {
         console.warn("MapX startup update check failed", error);
+        setUpdateState(failUpdateCheck("startup", error));
       });
   }, [firstLaunchSettings]);
 
@@ -790,30 +795,34 @@ function App() {
   );
 
   const handleManualUpdateCheck = useCallback(async () => {
+    setUpdateState(startUpdateCheck("manual"));
     try {
       const result = await checkForAppUpdate();
+      const nextState = resolveUpdateCheck("manual", result);
+      setUpdateState(nextState);
 
       if (result.status === "noUpdate") {
         return { status: "latest" as const, message: "当前已是最新版本。" };
       }
 
-      setUpdateDialog({ status: "available", update: result.update, source: "manual" });
       return { status: "available" as const, message: `发现新版本 ${result.update.version}。` };
     } catch (error) {
-      return { status: "error" as const, message: getUpdateErrorMessage(error), canOpenDownloadPage: true };
+      const nextState = failUpdateCheck("manual", error);
+      setUpdateState(nextState);
+      return { status: "error" as const, message: nextState.message, canOpenDownloadPage: true };
     }
   }, []);
 
   const handleDownloadUpdate = useCallback((update: AvailableAppUpdate) => {
-    setUpdateDialog({ status: "downloading", update, progress: null });
+    setUpdateState(startUpdateDownload(update));
     void downloadAvailableAppUpdate((progress) => {
-      setUpdateDialog({ status: "downloading", update, progress });
+      setUpdateState((currentState) => progressUpdateDownload(currentState, progress));
     })
       .then(() => {
-        setUpdateDialog({ status: "downloaded", update });
+        setUpdateState(finishUpdateDownload(update));
       })
       .catch((error) => {
-        setUpdateDialog({ status: "error", update, message: getUpdateErrorMessage(error) });
+        setUpdateState(failUpdateDownload(update, error));
       });
   }, []);
 
@@ -825,7 +834,7 @@ function App() {
           try {
             await installDownloadedAppUpdate();
           } catch (error) {
-            setUpdateDialog({ status: "error", update, message: getUpdateErrorMessage(error) });
+            setUpdateState(failUpdateDownload(update, error));
           }
         },
       });
@@ -835,7 +844,7 @@ function App() {
 
   const handleOpenUpdateDownloadPage = useCallback(() => {
     void openUpdateDownloadPage().catch((error) => {
-      setUpdateDialog({ status: "error", update: null, message: getUpdateErrorMessage(error) });
+      setUpdateState(failUpdateDownload(null, error));
     });
   }, []);
 
@@ -1853,7 +1862,7 @@ function App() {
               <p className="mt-4 text-sm leading-6 text-muted-foreground">更新已下载。点击“重启安装”后，MapX 会先检查未保存的点位修改。</p>
             ) : null}
 
-            {updateDialog.status === "error" ? <p className="mt-4 text-sm leading-6 text-red-600">{updateDialog.message}</p> : null}
+            {updateDialog.status === "failed" ? <p className="mt-4 text-sm leading-6 text-red-600">{updateDialog.message}</p> : null}
 
             <div className="mt-5 flex justify-end gap-2">
               {updateDialog.status === "available" ? (
@@ -1861,7 +1870,7 @@ function App() {
                   <Button type="button" size="sm" variant="outline" onClick={handleOpenUpdateDownloadPage}>
                     打开下载页面
                   </Button>
-                  <Button type="button" size="sm" variant="outline" onClick={() => setUpdateDialog(null)}>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setUpdateState(initialUpdateState)}>
                     稍后
                   </Button>
                   <Button type="button" size="sm" onClick={() => handleDownloadUpdate(updateDialog.update)}>
@@ -1876,7 +1885,7 @@ function App() {
               ) : null}
               {updateDialog.status === "downloaded" ? (
                 <>
-                  <Button type="button" size="sm" variant="outline" onClick={() => setUpdateDialog(null)}>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setUpdateState(initialUpdateState)}>
                     稍后
                   </Button>
                   <Button type="button" size="sm" onClick={() => handleInstallDownloadedUpdate(updateDialog.update)}>
@@ -1884,12 +1893,12 @@ function App() {
                   </Button>
                 </>
               ) : null}
-              {updateDialog.status === "error" ? (
+              {updateDialog.status === "failed" ? (
                 <>
                   <Button type="button" size="sm" variant="outline" onClick={handleOpenUpdateDownloadPage}>
                     打开下载页面
                   </Button>
-                  <Button type="button" size="sm" onClick={() => setUpdateDialog(null)}>
+                  <Button type="button" size="sm" onClick={() => setUpdateState(initialUpdateState)}>
                     关闭
                   </Button>
                 </>
