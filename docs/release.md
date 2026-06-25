@@ -52,6 +52,7 @@ The updater public key is stored in `src-tauri/tauri.conf.json`. The updater pri
 - Confirm the generated GitHub Release body still includes the signed-updater and unsigned/manual-install fallback warning.
 - Confirm `latest.json` exists and contains macOS and Windows platform entries with signatures.
 - After artifacts are available, download the macOS `.dmg` and Windows `.msi` from GitHub and verify the installer opens far enough to identify itself as MapX.
+- Before closing auto-update work, run the packaged-app checklist in [auto-update-qa.md](auto-update-qa.md) and record the results on `QA-009`.
 - On macOS unsigned builds, verify the quarantine workaround below opens the installed app.
 
 ## Automatic Update Fallback
