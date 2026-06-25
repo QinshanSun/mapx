@@ -75,6 +75,13 @@ try {
     await waitForText(cdp, "最近备份：暂无备份");
     await waitForText(cdp, "打开备份目录");
     await waitForText(cdp, "打开日志目录");
+    await waitForText(cdp, "关于 MapX");
+    await waitForText(cdp, "版本：");
+    await waitForText(cdp, "启动时自动检查更新");
+    await waitForText(cdp, "打开下载页面");
+    await clickButtonByText(cdp, "检查更新");
+    await waitForText(cdp, "当前已是最新版本。");
+    checks.push("auto-update-settings-entry");
 
     if (BAIDU_MAP_AK) {
       await setInputById(cdp, "settings-baidu-ak", BAIDU_MAP_AK);
