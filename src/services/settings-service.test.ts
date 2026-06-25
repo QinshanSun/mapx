@@ -5,6 +5,7 @@ import {
   buildUpdateAutoUpdateCheckOnStartupInput,
   buildUpdateBaiduAkInput,
   DEFAULT_CITY,
+  updateAutoUpdateCheckOnStartup,
 } from "@/services/settings-service";
 
 describe("first launch settings service", () => {
@@ -37,5 +38,19 @@ describe("first launch settings service", () => {
   it("builds startup update-check preference payloads", () => {
     expect(buildUpdateAutoUpdateCheckOnStartupInput(false)).toEqual({ enabled: false });
     expect(buildUpdateAutoUpdateCheckOnStartupInput(true)).toEqual({ enabled: true });
+  });
+
+  it("maps the startup update-check preference back into settings state", async () => {
+    const currentSettings = {
+      completed: true,
+      defaultCity: DEFAULT_CITY,
+      baiduAk: null,
+      autoUpdateCheckOnStartup: true,
+    };
+
+    await expect(updateAutoUpdateCheckOnStartup(false, currentSettings)).resolves.toEqual({
+      ...currentSettings,
+      autoUpdateCheckOnStartup: false,
+    });
   });
 });
