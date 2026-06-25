@@ -1,6 +1,7 @@
 import {
   Building2,
   CircleHelp,
+  Download,
   FolderOpen,
   Check,
   MapPinned,
@@ -54,6 +55,16 @@ import {
   validateProjectName,
 } from "@/services/project-service";
 import { getFirstLaunchSettings, openLogDirectory } from "@/services/settings-service";
+import {
+  checkForAppUpdate,
+  downloadAvailableAppUpdate,
+  formatUpdateProgress,
+  getUpdateErrorMessage,
+  installDownloadedAppUpdate,
+  openUpdateDownloadPage,
+  type AvailableAppUpdate,
+  type UpdateDownloadProgress,
+} from "@/services/update-service";
 import { resolveWorkspaceDetailTitle } from "@/services/workspace-detail-title";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { BootstrapStatus } from "@/types/bootstrap";
@@ -83,6 +94,12 @@ interface DirtyPromptState {
   error: string | null;
   isSaving: boolean;
 }
+
+type UpdateDialogState =
+  | { status: "available"; update: AvailableAppUpdate; source: "startup" | "manual" }
+  | { status: "downloading"; update: AvailableAppUpdate; progress: UpdateDownloadProgress | null }
+  | { status: "downloaded"; update: AvailableAppUpdate }
+  | { status: "error"; update: AvailableAppUpdate | null; message: string };
 
 function App() {
   const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapStatus | null>(null);
@@ -121,6 +138,7 @@ function App() {
   const [measurementFormNote, setMeasurementFormNote] = useState("");
   const [pendingDeleteMeasurement, setPendingDeleteMeasurement] = useState<MeasurementRecord | null>(null);
   const [dirtyPrompt, setDirtyPrompt] = useState<DirtyPromptState | null>(null);
+  const [updateDialog, setUpdateDialog] = useState<UpdateDialogState | null>(null);
   const [isProjectSaving, setIsProjectSaving] = useState(false);
   const [isProjectRenaming, setIsProjectRenaming] = useState(false);
   const [isProjectDeleting, setIsProjectDeleting] = useState(false);
@@ -133,6 +151,7 @@ function App() {
   const pendingDeleteProject = projectWorkspace?.projects.find((project) => project.id === pendingDeleteProjectId) ?? null;
   const markerDirtyHandlersRef = useRef<MarkerDirtyHandlers | null>(null);
   const pendingDirtyActionRef = useRef<PendingDirtyAction | null>(null);
+  const startupUpdateCheckRef = useRef(false);
   const mapMarkers = useMemo(() => {
     const markerItems: MapMarkerItem[] = buildMapMarkerItems(filteredMarkerRecords, markerCategories).map((markerItem) => {
       if (markerItem.id !== coordinateEditMarkerId || !movedMarkerCoordinate) {
@@ -246,6 +265,24 @@ function App() {
     return () => {
       isActive = false;
     };
+  }, [firstLaunchSettings]);
+
+  useEffect(() => {
+    if (!firstLaunchSettings?.completed || !firstLaunchSettings.autoUpdateCheckOnStartup || startupUpdateCheckRef.current) {
+      return;
+    }
+
+    startupUpdateCheckRef.current = true;
+
+    checkForAppUpdate()
+      .then((result) => {
+        if (result.status === "available") {
+          setUpdateDialog({ status: "available", update: result.update, source: "startup" });
+        }
+      })
+      .catch((error) => {
+        console.warn("MapX startup update check failed", error);
+      });
   }, [firstLaunchSettings]);
 
   const { activePanel, dispatchAction, lastActionNotice, selectedMarkerId, setActivePanel, selectMarker } =
@@ -751,6 +788,56 @@ function App() {
     },
     [runPendingDirtyAction],
   );
+
+  const handleManualUpdateCheck = useCallback(async () => {
+    try {
+      const result = await checkForAppUpdate();
+
+      if (result.status === "noUpdate") {
+        return { status: "latest" as const, message: "当前已是最新版本。" };
+      }
+
+      setUpdateDialog({ status: "available", update: result.update, source: "manual" });
+      return { status: "available" as const, message: `发现新版本 ${result.update.version}。` };
+    } catch (error) {
+      return { status: "error" as const, message: getUpdateErrorMessage(error), canOpenDownloadPage: true };
+    }
+  }, []);
+
+  const handleDownloadUpdate = useCallback((update: AvailableAppUpdate) => {
+    setUpdateDialog({ status: "downloading", update, progress: null });
+    void downloadAvailableAppUpdate((progress) => {
+      setUpdateDialog({ status: "downloading", update, progress });
+    })
+      .then(() => {
+        setUpdateDialog({ status: "downloaded", update });
+      })
+      .catch((error) => {
+        setUpdateDialog({ status: "error", update, message: getUpdateErrorMessage(error) });
+      });
+  }, []);
+
+  const handleInstallDownloadedUpdate = useCallback(
+    (update: AvailableAppUpdate) => {
+      runWithMarkerDirtyGuard({
+        message: "安装更新前，当前点位还有未保存的修改。",
+        run: async () => {
+          try {
+            await installDownloadedAppUpdate();
+          } catch (error) {
+            setUpdateDialog({ status: "error", update, message: getUpdateErrorMessage(error) });
+          }
+        },
+      });
+    },
+    [runWithMarkerDirtyGuard],
+  );
+
+  const handleOpenUpdateDownloadPage = useCallback(() => {
+    void openUpdateDownloadPage().catch((error) => {
+      setUpdateDialog({ status: "error", update: null, message: getUpdateErrorMessage(error) });
+    });
+  }, []);
 
   useEffect(() => {
     if (!isTauri()) {
@@ -1565,6 +1652,7 @@ function App() {
               currentProjectId={projectWorkspace.currentProject.id}
               onChange={setFirstLaunchSettings}
               onError={handleSettingsError}
+              onCheckForUpdate={handleManualUpdateCheck}
             />
           ) : activePanel === "about" ? (
             <div className="space-y-4 p-5 text-sm leading-6">
@@ -1731,6 +1819,83 @@ function App() {
               </Button>
             </div>
           </form>
+        </div>
+      ) : null}
+      {updateDialog ? (
+        <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/35 p-6">
+          <section className="w-full max-w-lg rounded-lg border border-border bg-white p-5 shadow-lg" role="dialog" aria-modal="true" aria-labelledby="app-update-title">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="app-update-title" className="text-base font-semibold">
+                  {updateDialog.status === "available" ? "发现新版本" : updateDialog.status === "downloading" ? "正在下载更新" : updateDialog.status === "downloaded" ? "更新已下载" : "更新失败"}
+                </h2>
+                {"update" in updateDialog && updateDialog.update ? (
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    当前 {updateDialog.update.currentVersion} → 新版本 {updateDialog.update.version}
+                  </p>
+                ) : null}
+              </div>
+              <Download className="size-5 shrink-0 text-primary" />
+            </div>
+
+            {updateDialog.status === "available" ? (
+              <div className="mt-4 space-y-3 text-sm leading-6 text-muted-foreground">
+                {updateDialog.update.date ? <p>发布时间：{updateDialog.update.date}</p> : null}
+                {updateDialog.update.body ? <p className="max-h-36 overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-3">{updateDialog.update.body}</p> : null}
+              </div>
+            ) : null}
+
+            {updateDialog.status === "downloading" ? (
+              <p className="mt-4 rounded-md bg-slate-50 p-3 text-sm text-muted-foreground">{formatUpdateProgress(updateDialog.progress)}</p>
+            ) : null}
+
+            {updateDialog.status === "downloaded" ? (
+              <p className="mt-4 text-sm leading-6 text-muted-foreground">更新已下载。点击“重启安装”后，MapX 会先检查未保存的点位修改。</p>
+            ) : null}
+
+            {updateDialog.status === "error" ? <p className="mt-4 text-sm leading-6 text-red-600">{updateDialog.message}</p> : null}
+
+            <div className="mt-5 flex justify-end gap-2">
+              {updateDialog.status === "available" ? (
+                <>
+                  <Button type="button" size="sm" variant="outline" onClick={handleOpenUpdateDownloadPage}>
+                    打开下载页面
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setUpdateDialog(null)}>
+                    稍后
+                  </Button>
+                  <Button type="button" size="sm" onClick={() => handleDownloadUpdate(updateDialog.update)}>
+                    立即更新
+                  </Button>
+                </>
+              ) : null}
+              {updateDialog.status === "downloading" ? (
+                <Button type="button" size="sm" disabled>
+                  下载中
+                </Button>
+              ) : null}
+              {updateDialog.status === "downloaded" ? (
+                <>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setUpdateDialog(null)}>
+                    稍后
+                  </Button>
+                  <Button type="button" size="sm" onClick={() => handleInstallDownloadedUpdate(updateDialog.update)}>
+                    重启安装
+                  </Button>
+                </>
+              ) : null}
+              {updateDialog.status === "error" ? (
+                <>
+                  <Button type="button" size="sm" variant="outline" onClick={handleOpenUpdateDownloadPage}>
+                    打开下载页面
+                  </Button>
+                  <Button type="button" size="sm" onClick={() => setUpdateDialog(null)}>
+                    关闭
+                  </Button>
+                </>
+              ) : null}
+            </div>
+          </section>
         </div>
       ) : null}
       {dirtyPrompt ? (

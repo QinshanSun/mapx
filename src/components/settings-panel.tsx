@@ -1,4 +1,4 @@
-import { Check, FolderOpen, Info, KeyRound, RotateCcw, Trash2 } from "lucide-react";
+import { Check, ExternalLink, FolderOpen, Info, KeyRound, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { CategoryManagementPanel } from "@/components/category-management-panel";
@@ -12,19 +12,26 @@ import {
   openBackupDirectory,
   openDataDirectory,
   openLogDirectory,
+  updateAutoUpdateCheckOnStartup,
   updateBaiduAk,
   updateDefaultCity,
 } from "@/services/settings-service";
+import { openUpdateDownloadPage } from "@/services/update-service";
 import type { AppInfo, BackupInfo, FirstLaunchSettings } from "@/types/settings";
+
+export type ManualUpdateCheckFeedback =
+  | { status: "latest" | "available"; message: string }
+  | { status: "error"; message: string; canOpenDownloadPage: boolean };
 
 interface SettingsPanelProps {
   settings: FirstLaunchSettings;
   currentProjectId: string;
   onChange: (settings: FirstLaunchSettings) => void;
   onError: (error: unknown) => void;
+  onCheckForUpdate: () => Promise<ManualUpdateCheckFeedback>;
 }
 
-export function SettingsPanel({ settings, currentProjectId, onChange, onError }: SettingsPanelProps) {
+export function SettingsPanel({ settings, currentProjectId, onChange, onError, onCheckForUpdate }: SettingsPanelProps) {
   const citySelectRef = useRef<HTMLSelectElement>(null);
   const [selectedCity, setSelectedCity] = useState(normalizeCityName(settings.defaultCity));
   const [akDraft, setAkDraft] = useState(settings.baiduAk ?? "");
@@ -35,6 +42,9 @@ export function SettingsPanel({ settings, currentProjectId, onChange, onError }:
   const [isOpeningDataDirectory, setIsOpeningDataDirectory] = useState(false);
   const [isOpeningBackupDirectory, setIsOpeningBackupDirectory] = useState(false);
   const [isOpeningLogDirectory, setIsOpeningLogDirectory] = useState(false);
+  const [isAutoUpdateSaving, setIsAutoUpdateSaving] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateFeedback, setUpdateFeedback] = useState<ManualUpdateCheckFeedback | null>(null);
   const originGuidance = buildBaiduAkOriginGuidance();
   const currentCity = CHINA_CITIES.find((city) => city.name === selectedCity) ?? CHINA_CITIES[0];
   const hasChanges = selectedCity !== normalizeCityName(settings.defaultCity);
@@ -114,6 +124,37 @@ export function SettingsPanel({ settings, currentProjectId, onChange, onError }:
       onError(error);
     } finally {
       setIsOpeningLogDirectory(false);
+    }
+  }
+
+  async function saveAutoUpdateCheckOnStartup(enabled: boolean) {
+    setIsAutoUpdateSaving(true);
+    setUpdateFeedback(null);
+    try {
+      const nextSettings = await updateAutoUpdateCheckOnStartup(enabled, settings);
+      onChange(nextSettings);
+    } catch (error) {
+      onError(error);
+    } finally {
+      setIsAutoUpdateSaving(false);
+    }
+  }
+
+  async function checkForUpdate() {
+    setIsCheckingUpdate(true);
+    setUpdateFeedback(null);
+    try {
+      setUpdateFeedback(await onCheckForUpdate());
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  }
+
+  async function openDownloadPage() {
+    try {
+      await openUpdateDownloadPage();
+    } catch (error) {
+      onError(error);
     }
   }
 
@@ -254,6 +295,35 @@ export function SettingsPanel({ settings, currentProjectId, onChange, onError }:
           <p>应用名称：{appInfo?.appName ?? "MapX"}</p>
           <p>版本：{appInfo?.version ?? "正在读取"}</p>
           <p className="break-all">数据库：{appInfo?.databasePath ?? "正在读取"}</p>
+        </div>
+        <div className="mt-4 rounded-md bg-slate-50 p-3">
+          <label className="flex items-center justify-between gap-3 text-sm font-medium" htmlFor="settings-auto-update-check">
+            <span>启动时自动检查更新</span>
+            <input
+              id="settings-auto-update-check"
+              type="checkbox"
+              className="size-4 accent-primary"
+              checked={settings.autoUpdateCheckOnStartup}
+              disabled={isAutoUpdateSaving}
+              onChange={(event) => void saveAutoUpdateCheckOnStartup(event.currentTarget.checked)}
+            />
+          </label>
+          <p className="mt-2 text-xs leading-5 text-muted-foreground">后台检查失败只记录日志，不会影响进入主界面。</p>
+          {updateFeedback ? (
+            <p className={updateFeedback.status === "error" ? "mt-3 text-xs leading-5 text-red-600" : "mt-3 text-xs leading-5 text-emerald-700"}>
+              {updateFeedback.message}
+            </p>
+          ) : null}
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => void openDownloadPage()}>
+            <ExternalLink />
+            打开下载页面
+          </Button>
+          <Button type="button" size="sm" disabled={isCheckingUpdate} onClick={() => void checkForUpdate()}>
+            <RefreshCw className={isCheckingUpdate ? "animate-spin" : undefined} />
+            检查更新
+          </Button>
         </div>
       </section>
     </div>

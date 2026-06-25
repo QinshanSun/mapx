@@ -15,6 +15,8 @@ use crate::{
 const KEY_FIRST_LAUNCH_COMPLETED: &str = "first_launch_completed";
 const KEY_DEFAULT_CITY: &str = "default_city";
 const KEY_BAIDU_AK: &str = "baidu_ak";
+const KEY_AUTO_UPDATE_CHECK_ON_STARTUP: &str = "auto_update_check_on_startup";
+const UPDATE_DOWNLOAD_PAGE_URL: &str = "https://github.com/QinshanSun/mapx/releases";
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +24,7 @@ pub struct FirstLaunchSettings {
     pub completed: bool,
     pub default_city: String,
     pub baidu_ak: Option<String>,
+    pub auto_update_check_on_startup: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -50,6 +53,12 @@ pub struct UpdateDefaultCityRequest {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateBaiduAkRequest {
     pub baidu_ak: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAutoUpdateCheckOnStartupRequest {
+    pub enabled: bool,
 }
 
 #[tauri::command]
@@ -93,6 +102,19 @@ pub async fn update_baidu_ak(
     let baidu_ak = normalize_baidu_ak(request.baidu_ak.as_deref());
 
     upsert_app_setting(&pool, KEY_BAIDU_AK, baidu_ak.as_deref()).await?;
+
+    load_first_launch_settings(&pool).await
+}
+
+#[tauri::command]
+pub async fn update_auto_update_check_on_startup(
+    state: tauri::State<'_, AppRuntimeState>,
+    request: UpdateAutoUpdateCheckOnStartupRequest,
+) -> Result<FirstLaunchSettings, AppError> {
+    let pool = require_pool(&state)?;
+    let enabled = if request.enabled { "true" } else { "false" };
+
+    upsert_app_setting(&pool, KEY_AUTO_UPDATE_CHECK_ON_STARTUP, Some(enabled)).await?;
 
     load_first_launch_settings(&pool).await
 }
@@ -148,6 +170,11 @@ pub fn open_log_directory(app: tauri::AppHandle) -> Result<(), AppError> {
     open_path(&log_directory)
 }
 
+#[tauri::command]
+pub fn open_update_download_page() -> Result<(), AppError> {
+    open_external_url(UPDATE_DOWNLOAD_PAGE_URL)
+}
+
 async fn save_first_launch_settings(
     pool: &SqlitePool,
     request: CompleteFirstLaunchRequest,
@@ -167,6 +194,7 @@ async fn save_first_launch_settings(
         completed: true,
         default_city,
         baidu_ak,
+        auto_update_check_on_startup: true,
     })
 }
 
@@ -175,11 +203,12 @@ async fn load_first_launch_settings(pool: &SqlitePool) -> Result<FirstLaunchSett
         "SELECT key, value
          FROM app_settings
          WHERE deleted_at IS NULL
-           AND key IN (?, ?, ?)",
+           AND key IN (?, ?, ?, ?)",
     )
     .bind(KEY_FIRST_LAUNCH_COMPLETED)
     .bind(KEY_DEFAULT_CITY)
     .bind(KEY_BAIDU_AK)
+    .bind(KEY_AUTO_UPDATE_CHECK_ON_STARTUP)
     .fetch_all(pool)
     .await
     .map_err(AppError::from)?;
@@ -187,6 +216,7 @@ async fn load_first_launch_settings(pool: &SqlitePool) -> Result<FirstLaunchSett
     let mut completed = false;
     let mut default_city = DEFAULT_CITY.to_string();
     let mut baidu_ak = None;
+    let mut auto_update_check_on_startup = true;
 
     for row in rows {
         let key = row.try_get::<String, _>("key").map_err(AppError::from)?;
@@ -198,6 +228,9 @@ async fn load_first_launch_settings(pool: &SqlitePool) -> Result<FirstLaunchSett
             (KEY_FIRST_LAUNCH_COMPLETED, Some(value)) => completed = value == "true",
             (KEY_DEFAULT_CITY, Some(value)) if !value.trim().is_empty() => default_city = value,
             (KEY_BAIDU_AK, Some(value)) if !value.trim().is_empty() => baidu_ak = Some(value),
+            (KEY_AUTO_UPDATE_CHECK_ON_STARTUP, Some(value)) => {
+                auto_update_check_on_startup = value != "false"
+            }
             _ => {}
         }
     }
@@ -206,6 +239,7 @@ async fn load_first_launch_settings(pool: &SqlitePool) -> Result<FirstLaunchSett
         completed,
         default_city,
         baidu_ak,
+        auto_update_check_on_startup,
     })
 }
 
@@ -278,6 +312,25 @@ fn open_path(path: &PathBuf) -> Result<(), AppError> {
     Ok(())
 }
 
+fn open_external_url(url: &str) -> Result<(), AppError> {
+    let mut command = if cfg!(target_os = "macos") {
+        let mut command = Command::new("open");
+        command.arg(url);
+        command
+    } else if cfg!(target_os = "windows") {
+        let mut command = Command::new("explorer");
+        command.arg(url);
+        command
+    } else {
+        let mut command = Command::new("xdg-open");
+        command.arg(url);
+        command
+    };
+
+    command.spawn().map_err(|_| AppError::db())?;
+    Ok(())
+}
+
 fn require_pool(state: &AppRuntimeState) -> Result<SqlitePool, AppError> {
     state.pool.clone().ok_or_else(AppError::db)
 }
@@ -301,7 +354,44 @@ mod tests {
                 completed: false,
                 default_city: "上海".to_string(),
                 baidu_ak: None,
+                auto_update_check_on_startup: true,
             }
+        );
+    }
+
+    #[tokio::test]
+    async fn auto_update_startup_check_defaults_to_enabled() {
+        let (_temp_dir, pool) = create_test_pool().await;
+
+        let settings = load_first_launch_settings(&pool)
+            .await
+            .expect("settings should load");
+
+        assert!(settings.auto_update_check_on_startup);
+    }
+
+    #[tokio::test]
+    async fn auto_update_startup_check_can_be_disabled_and_enabled() {
+        let (_temp_dir, pool) = create_test_pool().await;
+
+        upsert_app_setting(&pool, KEY_AUTO_UPDATE_CHECK_ON_STARTUP, Some("false"))
+            .await
+            .expect("auto update setting should save");
+        assert!(
+            !load_first_launch_settings(&pool)
+                .await
+                .expect("settings should load")
+                .auto_update_check_on_startup
+        );
+
+        upsert_app_setting(&pool, KEY_AUTO_UPDATE_CHECK_ON_STARTUP, Some("true"))
+            .await
+            .expect("auto update setting should save");
+        assert!(
+            load_first_launch_settings(&pool)
+                .await
+                .expect("settings should load")
+                .auto_update_check_on_startup
         );
     }
 

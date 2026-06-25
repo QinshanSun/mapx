@@ -19,6 +19,7 @@ export function getFirstLaunchSettings() {
       completed: true,
       defaultCity: DEFAULT_CITY,
       baiduAk: null,
+      autoUpdateCheckOnStartup: true,
     });
   }
 
@@ -31,6 +32,7 @@ export function completeFirstLaunch(input: CompleteFirstLaunchInput) {
       completed: true,
       defaultCity: input.defaultCity,
       baiduAk: input.baiduAk,
+      autoUpdateCheckOnStartup: true,
     });
   }
 
@@ -61,6 +63,23 @@ export function updateBaiduAk(baiduAk: string | null, currentSettings: FirstLaun
   }
 
   return callCommand<FirstLaunchSettings>("update_baidu_ak", { request: input });
+}
+
+export function updateAutoUpdateCheckOnStartup(enabled: boolean, currentSettings: FirstLaunchSettings) {
+  const input = buildUpdateAutoUpdateCheckOnStartupInput(enabled);
+
+  if (!isTauri()) {
+    return Promise.resolve<FirstLaunchSettings>({
+      ...currentSettings,
+      autoUpdateCheckOnStartup: enabled,
+    });
+  }
+
+  return callCommand<FirstLaunchSettings>("update_auto_update_check_on_startup", { request: input });
+}
+
+export function buildUpdateAutoUpdateCheckOnStartupInput(enabled: boolean) {
+  return { enabled };
 }
 
 export function getAppInfo() {

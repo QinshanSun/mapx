@@ -27,7 +27,7 @@ const dmgDir = path.join(bundleRoot, "dmg");
 const dmgPath = path.join(dmgDir, `MapX_${version}_${targetArch}.dmg`);
 const dmgSourceDir = path.join(tmpdir(), `mapx-dmg-source-${process.pid}`);
 
-run("tauri", ["build", "--ci", "--no-sign", "--bundles", "app"], { cwd: repoRoot });
+run("tauri", ["build", "--ci", "--bundles", "app"], { cwd: repoRoot });
 
 rmSync(dmgSourceDir, { recursive: true, force: true });
 rmSync(dmgPath, { force: true });
