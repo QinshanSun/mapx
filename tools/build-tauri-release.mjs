@@ -11,6 +11,12 @@ const commandEnv = {
   ...process.env,
   PATH: [path.join(homedir(), ".cargo", "bin"), process.env.PATH].filter(Boolean).join(path.delimiter),
 };
+const forwardedArgs = process.argv.slice(2);
+
+if (forwardedArgs.length > 0) {
+  run("tauri", ["build", ...forwardedArgs], { cwd: repoRoot });
+  process.exit(0);
+}
 
 if (platform() !== "darwin") {
   run("tauri", ["build"], { cwd: repoRoot });
