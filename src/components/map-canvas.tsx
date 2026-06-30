@@ -5,6 +5,10 @@ import {
   LocateFixed,
   Map as MapIcon,
   MapPin,
+  PanelRightClose,
+  PanelRightOpen,
+  Pin,
+  PinOff,
   Plus,
   RotateCcw,
   Ruler,
@@ -57,10 +61,15 @@ interface MapCanvasProps {
   pendingMarkerCoordinate: MapCoordinate | null;
   movedMarkerCoordinate: MapCoordinate | null;
   isMapLayerSaving: boolean;
+  isPinnedSummaryVisible: boolean;
+  isInspectorVisible: boolean;
+  pinnedSummary: MapPinnedSummary;
   onSelectMarker: (markerId: string) => void;
   onSelectMeasurement: (measurementId: string) => void;
   onMarkerDragged: (markerId: string, coordinate: MapCoordinate) => void;
   onMapLayerChange: (mapLayer: MapLayer) => void;
+  onTogglePinnedSummary: () => void;
+  onToggleInspector: () => void;
   onStartMarkerCreationMode: () => void;
   onCancelMarkerCreationMode: () => void;
   onStartDistanceMeasurementMode: () => void;
@@ -72,6 +81,11 @@ interface MapCanvasProps {
   onOpenSettings: () => void;
   onOpenLogDirectory: () => void | Promise<void>;
   onAvailabilityChange?: (availability: MapCanvasAvailability) => void;
+}
+
+export interface MapPinnedSummary {
+  modeLabel: string;
+  objectLabel: string;
 }
 
 export function MapCanvas({
@@ -88,10 +102,15 @@ export function MapCanvas({
   pendingMarkerCoordinate,
   movedMarkerCoordinate,
   isMapLayerSaving,
+  isPinnedSummaryVisible,
+  isInspectorVisible,
+  pinnedSummary,
   onSelectMarker,
   onSelectMeasurement,
   onMarkerDragged,
   onMapLayerChange,
+  onTogglePinnedSummary,
+  onToggleInspector,
   onStartMarkerCreationMode,
   onCancelMarkerCreationMode,
   onStartDistanceMeasurementMode,
@@ -352,6 +371,30 @@ export function MapCanvas({
       <div className="absolute right-4 top-4 z-20 flex items-center gap-2" role="group" aria-label="地图工具">
         <Button
           type="button"
+          size="icon"
+          variant="outline"
+          className="bg-white shadow-sm"
+          aria-label={isPinnedSummaryVisible ? "隐藏地图状态摘要" : "显示地图状态摘要"}
+          title={isPinnedSummaryVisible ? "隐藏地图状态摘要" : "显示地图状态摘要"}
+          aria-pressed={isPinnedSummaryVisible}
+          onClick={onTogglePinnedSummary}
+        >
+          {isPinnedSummaryVisible ? <PinOff /> : <Pin />}
+        </Button>
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          className="bg-white shadow-sm"
+          aria-label={isInspectorVisible ? "隐藏右侧操作面板" : "显示右侧操作面板"}
+          title={isInspectorVisible ? "隐藏右侧操作面板" : "显示右侧操作面板"}
+          aria-pressed={isInspectorVisible}
+          onClick={onToggleInspector}
+        >
+          {isInspectorVisible ? <PanelRightClose /> : <PanelRightOpen />}
+        </Button>
+        <Button
+          type="button"
           size="sm"
           variant={isMarkerCreationMode ? "default" : "outline"}
           className="bg-white shadow-sm data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
@@ -393,7 +436,15 @@ export function MapCanvas({
         </Button>
       </div>
 
-      <div className="pointer-events-none absolute left-4 top-16 z-20 flex max-w-[min(520px,calc(100%-8rem))] flex-col gap-2">
+      {isPinnedSummaryVisible ? (
+        <div className="pointer-events-none absolute left-4 top-16 z-20 flex max-w-[min(560px,calc(100%-8rem))] items-center gap-2 rounded-md border border-border bg-white/95 px-3 py-2 text-xs shadow-sm backdrop-blur">
+          <span className="font-medium text-foreground">{pinnedSummary.modeLabel}</span>
+          <span className="h-4 w-px bg-border" />
+          <span className="min-w-0 truncate text-muted-foreground">{pinnedSummary.objectLabel}</span>
+        </div>
+      ) : null}
+
+      <div className="pointer-events-none absolute left-4 top-28 z-20 flex max-w-[min(520px,calc(100%-8rem))] flex-col gap-2">
         {pendingMarkerCoordinate ? (
           <div className="flex min-h-9 items-center gap-2 rounded-md border border-primary/30 bg-white/95 px-3 py-2 text-xs font-medium text-primary shadow-sm">
             <MapPin className="size-3.5" />

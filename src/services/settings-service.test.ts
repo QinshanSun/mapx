@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCompleteFirstLaunchInput, buildUpdateBaiduAkInput, DEFAULT_CITY } from "@/services/settings-service";
+import { buildCompleteFirstLaunchInput, buildUpdateBaiduAkInput, DEFAULT_CITY, updateAutoUpdateCheckOnStartup } from "@/services/settings-service";
 
 describe("first launch settings service", () => {
   it("builds a skip-AK completion payload with the Shanghai default", () => {
@@ -27,5 +27,16 @@ describe("first launch settings service", () => {
   it("builds Baidu AK save and clear payloads", () => {
     expect(buildUpdateBaiduAkInput("  test-ak  ")).toEqual({ baiduAk: "test-ak" });
     expect(buildUpdateBaiduAkInput("   ")).toEqual({ baiduAk: null });
+  });
+
+  it("previews startup auto-update preference changes", async () => {
+    await expect(
+      updateAutoUpdateCheckOnStartup(false, {
+        completed: true,
+        defaultCity: "上海",
+        baiduAk: null,
+        autoUpdateCheckOnStartup: true,
+      }),
+    ).resolves.toMatchObject({ autoUpdateCheckOnStartup: false });
   });
 });

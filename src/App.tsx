@@ -17,15 +17,18 @@ import {
 } from "lucide-react";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type FormEvent } from "react";
 
 import { FirstLaunchFlow } from "@/components/first-launch-flow";
+import { CategoryManagementPanel } from "@/components/category-management-panel";
 import { MapCanvas, type MapCanvasAvailability } from "@/components/map-canvas";
 import { MarkerDetailPanel, type MarkerDirtyHandlers } from "@/components/marker-detail-panel";
 import { MarkerListPanel } from "@/components/marker-list-panel";
 import { SearchPanel } from "@/components/search-panel";
 import { SettingsPanel } from "@/components/settings-panel";
+import { TagManagementPanel } from "@/components/tag-management-panel";
 import { Button } from "@/components/ui/button";
+import { UpdateDialog } from "@/components/update-dialog";
 import { useWorkspaceActionEvents } from "@/hooks/use-workspace-action-events";
 import { getBackendErrorMessage } from "@/services/backend-error";
 import { getBootstrapStatus } from "@/services/bootstrap-service";
@@ -54,6 +57,13 @@ import {
   validateProjectName,
 } from "@/services/project-service";
 import { getFirstLaunchSettings, openLogDirectory } from "@/services/settings-service";
+import {
+  checkForAppUpdate,
+  downloadPendingUpdate,
+  installDownloadedUpdateAndRelaunch,
+  openReleaseDownloadPage,
+} from "@/services/update-service";
+import { appUpdateReducer, initialAppUpdateState } from "@/services/update-state";
 import { resolveWorkspaceDetailTitle } from "@/services/workspace-detail-title";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { BootstrapStatus } from "@/types/bootstrap";
@@ -62,15 +72,14 @@ import type { MarkerRecord } from "@/types/marker";
 import type { MeasurementRecord } from "@/types/measurement";
 import type { MapLayer, ProjectWorkspace } from "@/types/project";
 import type { FirstLaunchSettings } from "@/types/settings";
+import type { AppUpdateError } from "@/types/update";
 import type { WorkspacePanel } from "@/types/workspace";
 import type { WorkspaceActionId, WorkspaceActionSource } from "@/types/workspace-actions";
 
-const navItems: Array<{ panel: WorkspacePanel; label: string; icon: LucideIcon }> = [
-  { panel: "overview", label: "项目概览", icon: FolderOpen },
-  { panel: "markers", label: "点位管理", icon: MapPinned },
-  { panel: "search", label: "搜索", icon: Search },
-  { panel: "settings", label: "设置", icon: Settings },
-  { panel: "about", label: "关于", icon: CircleHelp },
+const navItems: Array<{ panel: WorkspacePanel; label: string; icon: LucideIcon; testId: string }> = [
+  { panel: "overview", label: "地图", icon: MapPinned, testId: "nav-map" },
+  { panel: "projects", label: "项目", icon: FolderOpen, testId: "nav-projects" },
+  { panel: "settings", label: "设置", icon: Settings, testId: "nav-settings" },
 ];
 
 interface PendingDirtyAction {
@@ -128,11 +137,17 @@ function App() {
   const [isMeasurementSaving, setIsMeasurementSaving] = useState(false);
   const [isMeasurementDeleting, setIsMeasurementDeleting] = useState(false);
   const [isMapLayerSaving, setIsMapLayerSaving] = useState(false);
+  const [isPinnedSummaryVisible, setIsPinnedSummaryVisible] = useState(true);
+  const [isInspectorVisible, setIsInspectorVisible] = useState(true);
+  const [updateState, dispatchUpdate] = useReducer(appUpdateReducer, initialAppUpdateState);
+  const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
   const [firstLaunchError, setFirstLaunchError] = useState<string | null>(null);
   const currentProjectId = projectWorkspace?.currentProject.id ?? null;
   const pendingDeleteProject = projectWorkspace?.projects.find((project) => project.id === pendingDeleteProjectId) ?? null;
   const markerDirtyHandlersRef = useRef<MarkerDirtyHandlers | null>(null);
   const pendingDirtyActionRef = useRef<PendingDirtyAction | null>(null);
+  const settingsReturnPanelRef = useRef<Exclude<WorkspacePanel, "settings">>("overview");
+  const hasRunStartupUpdateCheckRef = useRef(false);
   const mapMarkers = useMemo(() => {
     const markerItems: MapMarkerItem[] = buildMapMarkerItems(filteredMarkerRecords, markerCategories).map((markerItem) => {
       if (markerItem.id !== coordinateEditMarkerId || !movedMarkerCoordinate) {
@@ -251,6 +266,16 @@ function App() {
   const { activePanel, dispatchAction, lastActionNotice, selectedMarkerId, setActivePanel, selectMarker } =
     useWorkspaceStore();
 
+  useEffect(() => {
+    if (activePanel !== "settings") {
+      settingsReturnPanelRef.current = activePanel;
+    }
+  }, [activePanel]);
+
+  const closeSettingsPanel = useCallback(() => {
+    setActivePanel(settingsReturnPanelRef.current);
+  }, [setActivePanel]);
+
   const runPendingDirtyAction = useCallback(() => {
     const nextAction = pendingDirtyActionRef.current;
     pendingDirtyActionRef.current = null;
@@ -275,6 +300,71 @@ function App() {
   const handleMarkerDirtyHandlersChange = useCallback((handlers: MarkerDirtyHandlers | null) => {
     markerDirtyHandlersRef.current = handlers;
   }, []);
+
+  const runUpdateCheck = useCallback(async (source: "startup" | "manual") => {
+    dispatchUpdate({ type: "check-started", source });
+
+    try {
+      const update = await checkForAppUpdate();
+      if (!update) {
+        dispatchUpdate({ type: "check-no-update", source });
+        return;
+      }
+
+      dispatchUpdate({ type: "check-available", source, update });
+      setIsUpdateDialogOpen(true);
+    } catch (error) {
+      dispatchUpdate({ type: "check-failed", source, error: normalizeAppUpdateError(error) });
+    }
+  }, []);
+
+  const handleManualUpdateCheck = useCallback(() => {
+    void runUpdateCheck("manual");
+  }, [runUpdateCheck]);
+
+  const handleDownloadUpdate = useCallback(() => {
+    setIsUpdateDialogOpen(true);
+    dispatchUpdate({ type: "download-started" });
+    void downloadPendingUpdate((downloadedBytes, totalBytes) => {
+      dispatchUpdate({ type: "download-progress", downloadedBytes, totalBytes });
+    })
+      .then(() => dispatchUpdate({ type: "download-finished" }))
+      .catch((error) => {
+        dispatchUpdate({
+          type: "install-failed",
+          error: normalizeAppUpdateError(error),
+        });
+      });
+  }, []);
+
+  const handleRestartToInstallUpdate = useCallback(() => {
+    runWithMarkerDirtyGuard({
+      message: "重启安装更新前，当前点位还有未保存的修改。",
+      run: async () => {
+        try {
+          await installDownloadedUpdateAndRelaunch();
+        } catch (error) {
+          dispatchUpdate({
+            type: "install-failed",
+            error: normalizeAppUpdateError(error),
+          });
+        }
+      },
+    });
+  }, [runWithMarkerDirtyGuard]);
+
+  const handleOpenReleaseDownloadPage = useCallback(() => {
+    openReleaseDownloadPage().catch((error) => setProjectActionError(getBackendErrorMessage(error)));
+  }, []);
+
+  useEffect(() => {
+    if (!firstLaunchSettings?.completed || !firstLaunchSettings.autoUpdateCheckOnStartup || hasRunStartupUpdateCheckRef.current) {
+      return;
+    }
+
+    hasRunStartupUpdateCheckRef.current = true;
+    void runUpdateCheck("startup");
+  }, [firstLaunchSettings, runUpdateCheck]);
 
   const handleFilteredMarkersChange = useCallback((markers: MarkerRecord[], categories: CategoryRecord[]) => {
     setFilteredMarkerRecords(markers);
@@ -793,7 +883,7 @@ function App() {
     setIsProjectRenameOpen(false);
     setPendingDeleteProjectId(null);
     setProjectActionError(null);
-    setActivePanel("overview");
+    setActivePanel("projects");
   }, [setActivePanel]);
 
   const openProjectRenameForm = useCallback(() => {
@@ -879,16 +969,6 @@ function App() {
 
   useWorkspaceActionEvents(handleWorkspaceAction);
 
-  const openProjectCreate = useCallback(
-    (source: "button" | "menu" | "shortcut") => {
-      runWithMarkerDirtyGuard({
-        message: "新建项目前，当前点位还有未保存的修改。",
-        run: () => runWorkspaceAction("project.new", source),
-      });
-    },
-    [runWithMarkerDirtyGuard, runWorkspaceAction],
-  );
-
   const handleProjectSelect = useCallback(
     (projectId: string) => {
       if (!projectWorkspace || projectWorkspace.currentProject.id === projectId) {
@@ -909,7 +989,7 @@ function App() {
               setIsProjectRenameOpen(false);
               setProjectRenameName("");
               setPendingDeleteProjectId(null);
-              setActivePanel("overview");
+              setActivePanel("projects");
               setProjectActionError(null);
             })
             .catch((error) => setProjectActionError(getBackendErrorMessage(error)));
@@ -942,7 +1022,7 @@ function App() {
           setIsProjectCreateOpen(false);
           setPendingDeleteProjectId(null);
           setProjectActionError(null);
-          setActivePanel("overview");
+          setActivePanel("projects");
         })
         .catch((error) => setProjectActionError(getBackendErrorMessage(error)))
         .finally(() => setIsProjectSaving(false));
@@ -1002,7 +1082,7 @@ function App() {
           selectMarker(null);
           setIsProjectRenameOpen(false);
           setProjectRenameName("");
-          setActivePanel("overview");
+          setActivePanel("projects");
         }
       })
       .catch((error) => setProjectActionError(getBackendErrorMessage(error)))
@@ -1111,12 +1191,13 @@ function App() {
     return <BootstrapGate title="正在读取项目工作区" message="MapX 正在准备默认项目和项目设置。" />;
   }
 
+  const visiblePanel = activePanel === "settings" ? settingsReturnPanelRef.current : activePanel;
   const detailTitle = selectedMeasurementRecord
     ? isMeasurementEditing
       ? "编辑测距"
       : "测距详情"
     : resolveWorkspaceDetailTitle({
-        activePanel,
+        activePanel: visiblePanel,
         hasSelectedMarker: Boolean(selectedMarkerRecord),
         hasPendingMarker: Boolean(pendingMarker),
         isEditingMarker: isMarkerDetailEditing,
@@ -1124,6 +1205,16 @@ function App() {
       });
   const akStatus = firstLaunchSettings.baiduAk ? "已配置" : "未配置";
   const mapLayerLabel = projectWorkspace.settings.mapLayer === "satellite" ? "卫星图" : "普通地图";
+  const pinnedSummary = buildPinnedSummary({
+    selectedMarkerRecord,
+    selectedMeasurementRecord,
+    pendingMarker,
+    pendingMeasurementResult,
+    poiPreview,
+    coordinateEditMarkerId,
+    isMarkerCreationMode,
+    isDistanceMeasurementMode,
+  });
 
   return (
     <main className="flex min-h-screen bg-background text-foreground">
@@ -1140,145 +1231,23 @@ function App() {
           </div>
         </div>
 
-        <section className="border-b border-border p-4" aria-label="项目切换器">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <p className="text-xs font-medium text-muted-foreground">项目</p>
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              aria-label="打开新建项目表单"
-              onClick={() => openProjectCreate("button")}
-            >
-              <Plus />
-            </Button>
-          </div>
-
-          <div className="space-y-2">
-            {projectWorkspace.projects.map((project) => {
-              const isCurrent = project.id === projectWorkspace.currentProject.id;
-
-              if (isCurrent && isProjectRenameOpen) {
-                return (
-                  <form key={project.id} className="rounded-md border border-primary/30 bg-primary/5 p-2" onSubmit={handleProjectRename}>
-                    <input
-                      className="h-8 w-full rounded-md border border-input bg-white px-2 text-sm outline-none focus:border-primary"
-                      value={projectRenameName}
-                      onChange={(event) => setProjectRenameName(event.target.value)}
-                      placeholder="项目名称"
-                    />
-                    <div className="mt-2 flex justify-end gap-1">
-                      <Button type="button" size="icon" variant="ghost" disabled={isProjectRenaming} onClick={() => setProjectRenameName(project.name)}>
-                        <RotateCcw />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        disabled={isProjectRenaming}
-                        onClick={() => {
-                          setIsProjectRenameOpen(false);
-                          setProjectActionError(null);
-                        }}
-                      >
-                        <X />
-                      </Button>
-                      <Button type="submit" size="icon" variant="ghost" disabled={isProjectRenaming}>
-                        <Check />
-                      </Button>
-                    </div>
-                  </form>
-                );
-              }
-
-              return (
-                <div
-                  key={project.id}
-                  className={`group flex items-center rounded-md border transition ${
-                    isCurrent
-                      ? "border-primary/30 bg-primary/5 text-primary"
-                      : "border-border text-foreground hover:border-primary/40 hover:bg-accent"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 px-3 py-2 text-left text-sm font-medium"
-                    onClick={() => handleProjectSelect(project.id)}
-                  >
-                    <span className="block truncate">{project.name}</span>
-                  </button>
-                  <div className="pointer-events-none flex shrink-0 gap-1 pr-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-                    {isCurrent ? (
-                      <Button type="button" size="icon" variant="ghost" aria-label={`重命名项目 ${project.name}`} onClick={openProjectRenameForm}>
-                        <Pencil />
-                      </Button>
-                    ) : null}
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className="text-red-700 hover:bg-red-50 hover:text-red-700"
-                      aria-label={`删除项目 ${project.name}`}
-                      onClick={() => openProjectDeleteConfirm(project.id)}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {isProjectCreateOpen ? (
-            <form className="mt-3 space-y-2" onSubmit={handleProjectCreate}>
-              <input
-                className="h-9 w-full rounded-md border border-input bg-white px-3 text-sm outline-none transition placeholder:text-muted-foreground focus:border-primary"
-                value={newProjectName}
-                onChange={(event) => setNewProjectName(event.target.value)}
-                placeholder="新项目名称"
-              />
-              <div className="flex gap-2">
-                <Button type="submit" size="sm" className="flex-1" disabled={isProjectSaving}>
-                  <Plus />
-                  保存
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => {
-                    setIsProjectCreateOpen(false);
-                    setNewProjectName("");
-                    setProjectActionError(null);
-                  }}
-                >
-                  <X />
-                  取消
-                </Button>
-              </div>
-            </form>
-          ) : null}
-
-          {projectActionError ? <p className="mt-2 text-xs leading-5 text-red-600">{projectActionError}</p> : null}
-        </section>
-
         <nav className="flex flex-1 flex-col gap-1 p-3" aria-label="主导航">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = activePanel === item.panel;
+            const isActive = item.panel === "settings" ? activePanel === "settings" : item.panel === "overview" ? isMapWorkspacePanel(visiblePanel) : visiblePanel === item.panel;
 
             return (
               <Button
                 key={item.panel}
                 type="button"
+                data-testid={item.testId}
+                aria-label={`打开${item.label}`}
                 variant={isActive ? "secondary" : "ghost"}
                 className="justify-start"
                 onClick={() => handlePanelSelect(item.panel)}
               >
                 <Icon />
                 <span className="min-w-0 flex-1 text-left">{item.label}</span>
-                {item.panel === "search" ? <span className="text-[11px] font-medium text-slate-500">⌘/Ctrl F</span> : null}
               </Button>
             );
           })}
@@ -1292,17 +1261,170 @@ function App() {
         </div>
       </aside>
 
-      <section className="grid min-w-0 flex-1 grid-cols-[minmax(420px,1fr)_340px]">
-        <section className="flex min-w-0 flex-col bg-slate-50">
-          <header className="flex h-16 items-center border-b border-border bg-white px-5">
-            <div>
-              <p className="text-xs font-medium text-slate-600">当前项目</p>
-              <h2 className="text-base font-semibold">{projectWorkspace.currentProject.name}</h2>
-            </div>
-          </header>
+      {visiblePanel === "projects" ? (
+        <section className="min-w-0 flex-1 overflow-y-auto bg-slate-50 p-6">
+          <div className="mx-auto grid max-w-5xl gap-5">
+            <section className="rounded-lg border border-border bg-white p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-medium text-slate-600">项目管理</p>
+                  <h2 className="mt-1 text-xl font-semibold">{projectWorkspace.currentProject.name}</h2>
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">管理项目、切换当前项目，并维护当前项目的分类和标签。</p>
+                </div>
+                <Button type="button" aria-label="打开新建项目表单" onClick={openProjectCreateForm}>
+                  <Plus />
+                  新建项目
+                </Button>
+              </div>
+              {isProjectCreateOpen ? (
+                <form className="mt-4 grid gap-2 rounded-md border border-primary/20 bg-primary/5 p-3 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={handleProjectCreate}>
+                  <input
+                    className="h-9 min-w-0 rounded-md border border-input bg-white px-3 text-sm outline-none transition placeholder:text-muted-foreground focus:border-primary"
+                    value={newProjectName}
+                    onChange={(event) => setNewProjectName(event.target.value)}
+                    placeholder="新项目名称"
+                  />
+                  <div className="flex gap-2">
+                    <Button type="submit" size="sm" disabled={isProjectSaving}>
+                      <Plus />
+                      保存
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setIsProjectCreateOpen(false);
+                        setNewProjectName("");
+                        setProjectActionError(null);
+                      }}
+                    >
+                      <X />
+                      取消
+                    </Button>
+                  </div>
+                </form>
+              ) : null}
+              {projectActionError ? <p className="mt-3 text-sm leading-6 text-red-600">{projectActionError}</p> : null}
+            </section>
 
+            <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="rounded-lg border border-border bg-white p-5">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold">项目列表</h3>
+                  <span className="text-xs text-muted-foreground">{projectWorkspace.projects.length} 个项目</span>
+                </div>
+                <div className="grid gap-2">
+                  {projectWorkspace.projects.map((project) => {
+                    const isCurrent = project.id === projectWorkspace.currentProject.id;
+
+                    if (isCurrent && isProjectRenameOpen) {
+                      return (
+                        <form key={project.id} className="rounded-md border border-primary/30 bg-primary/5 p-3" onSubmit={handleProjectRename}>
+                          <input
+                            className="h-9 w-full rounded-md border border-input bg-white px-3 text-sm outline-none focus:border-primary"
+                            value={projectRenameName}
+                            onChange={(event) => setProjectRenameName(event.target.value)}
+                            placeholder="项目名称"
+                          />
+                          <div className="mt-2 flex justify-end gap-2">
+                            <Button type="button" size="sm" variant="outline" disabled={isProjectRenaming} onClick={() => setProjectRenameName(project.name)}>
+                              <RotateCcw />
+                              恢复
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={isProjectRenaming}
+                              onClick={() => {
+                                setIsProjectRenameOpen(false);
+                                setProjectActionError(null);
+                              }}
+                            >
+                              <X />
+                              取消
+                            </Button>
+                            <Button type="submit" size="sm" disabled={isProjectRenaming}>
+                              <Check />
+                              保存
+                            </Button>
+                          </div>
+                        </form>
+                      );
+                    }
+
+                    return (
+                      <div
+                        key={project.id}
+                        className={`rounded-md border p-3 transition ${
+                          isCurrent ? "border-primary/30 bg-primary/5 text-primary" : "border-border bg-white hover:border-primary/40 hover:bg-accent"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <button type="button" className="min-w-0 flex-1 text-left" onClick={() => handleProjectSelect(project.id)}>
+                            <span className="block truncate text-sm font-medium">{project.name}</span>
+                            <span className="mt-1 block text-xs text-muted-foreground">{isCurrent ? "当前项目" : "点击切换到该项目"}</span>
+                          </button>
+                          <div className="flex shrink-0 gap-1">
+                            {isCurrent ? (
+                              <Button type="button" size="icon" variant="ghost" aria-label={`重命名项目 ${project.name}`} onClick={openProjectRenameForm}>
+                                <Pencil />
+                              </Button>
+                            ) : null}
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="text-red-700 hover:bg-red-50 hover:text-red-700"
+                              aria-label={`删除项目 ${project.name}`}
+                              onClick={() => openProjectDeleteConfirm(project.id)}
+                            >
+                              <Trash2 />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-5">
+                <section className="rounded-lg border border-border bg-white p-5">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold">项目配置</h3>
+                    <Star className="size-4 text-amber-500" />
+                  </div>
+                  <dl className="grid gap-3 text-sm">
+                    <div>
+                      <dt className="text-xs text-muted-foreground">搜索城市</dt>
+                      <dd className="mt-1 font-medium">{projectWorkspace.settings.searchCity}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">图层</dt>
+                      <dd className="mt-1 font-medium">{mapLayerLabel}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">地图中心</dt>
+                      <dd className="mt-1 font-medium">
+                        {projectWorkspace.settings.mapCenterLng.toFixed(4)}, {projectWorkspace.settings.mapCenterLat.toFixed(4)}
+                      </dd>
+                    </div>
+                  </dl>
+                </section>
+
+                <CategoryManagementPanel projectId={projectWorkspace.currentProject.id} onError={(error) => setProjectActionError(getBackendErrorMessage(error))} />
+                <TagManagementPanel projectId={projectWorkspace.currentProject.id} onError={(error) => setProjectActionError(getBackendErrorMessage(error))} />
+              </div>
+            </section>
+          </div>
+        </section>
+      ) : (
+      <section className={`grid min-w-0 flex-1 ${isInspectorVisible ? "grid-cols-[minmax(420px,1fr)_340px]" : "grid-cols-[minmax(420px,1fr)]"}`}>
+        <section className="flex min-w-0 flex-col bg-slate-50">
           <div className="flex min-h-0 flex-1">
-            {activePanel === "markers" ? (
+            {visiblePanel === "markers" ? (
               <MarkerListPanel
                 projectId={projectWorkspace.currentProject.id}
                 selectedMarkerId={selectedMarkerId}
@@ -1318,7 +1440,7 @@ function App() {
                 onFilteredMarkersChange={handleFilteredMarkersChange}
                 onError={(error) => setProjectActionError(getBackendErrorMessage(error))}
               />
-            ) : activePanel === "search" ? (
+            ) : visiblePanel === "search" ? (
               <SearchPanel
                 projectId={projectWorkspace.currentProject.id}
                 baiduAk={firstLaunchSettings.baiduAk}
@@ -1355,10 +1477,15 @@ function App() {
                 pendingMarkerCoordinate={pendingMarker ? { lng: pendingMarker.lng, lat: pendingMarker.lat } : null}
                 movedMarkerCoordinate={movedMarkerCoordinate}
                 isMapLayerSaving={isMapLayerSaving}
+                isPinnedSummaryVisible={isPinnedSummaryVisible}
+                isInspectorVisible={isInspectorVisible}
+                pinnedSummary={pinnedSummary}
                 onSelectMarker={handleMapMarkerSelect}
                 onSelectMeasurement={handleMapMeasurementSelect}
                 onMarkerDragged={handleMarkerDragged}
                 onMapLayerChange={handleMapLayerChange}
+                onTogglePinnedSummary={() => setIsPinnedSummaryVisible((isVisible) => !isVisible)}
+                onToggleInspector={() => setIsInspectorVisible((isVisible) => !isVisible)}
                 onStartMarkerCreationMode={startMarkerCreationMode}
                 onCancelMarkerCreationMode={cancelMarkerCreationMode}
                 onStartDistanceMeasurementMode={startDistanceMeasurementMode}
@@ -1382,6 +1509,7 @@ function App() {
           </div>
         </section>
 
+        {isInspectorVisible ? (
         <aside className="flex min-w-0 flex-col border-l border-border bg-white">
           <header className="border-b border-border p-5">
             <p className="text-xs font-medium text-slate-600">当前面板</p>
@@ -1485,7 +1613,7 @@ function App() {
                 </section>
               )}
             </div>
-          ) : activePanel === "markers" ? (
+          ) : visiblePanel === "markers" ? (
             <MarkerDetailPanel
               key={
                 pendingMarker
@@ -1514,7 +1642,7 @@ function App() {
               onError={(error) => setProjectActionError(getBackendErrorMessage(error))}
               onDirtyHandlersChange={handleMarkerDirtyHandlersChange}
             />
-          ) : activePanel === "search" ? (
+          ) : visiblePanel === "search" ? (
             <div className="space-y-4 p-5">
               {poiPreview ? (
                 <section className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm leading-6">
@@ -1559,14 +1687,7 @@ function App() {
                 <p>从左侧搜索结果选择点位后，MapX 会打开点位详情并同步地图选中态。</p>
               </section>
             </div>
-          ) : activePanel === "settings" ? (
-            <SettingsPanel
-              settings={firstLaunchSettings}
-              currentProjectId={projectWorkspace.currentProject.id}
-              onChange={setFirstLaunchSettings}
-              onError={handleSettingsError}
-            />
-          ) : activePanel === "about" ? (
+          ) : visiblePanel === "about" ? (
             <div className="space-y-4 p-5 text-sm leading-6">
               <section className="rounded-lg border border-border p-4">
                 <div className="mb-3 flex items-center justify-between">
@@ -1624,15 +1745,6 @@ function App() {
                     <Settings />
                     打开设置
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="justify-start"
-                    onClick={() => runWorkspaceAction("help.about", "button")}
-                  >
-                    <CircleHelp />
-                    关于 MapX
-                  </Button>
                 </div>
               </section>
 
@@ -1677,7 +1789,44 @@ function App() {
             </div>
           )}
         </aside>
+        ) : null}
       </section>
+      )}
+
+      {activePanel === "settings" ? (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-slate-950/35 p-8"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeSettingsPanel();
+            }
+          }}
+        >
+          <div role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
+            <SettingsPanel
+              settings={firstLaunchSettings}
+              updateState={updateState}
+              onClose={closeSettingsPanel}
+              onChange={setFirstLaunchSettings}
+              onError={handleSettingsError}
+              onCheckForUpdates={handleManualUpdateCheck}
+              onDownloadUpdate={handleDownloadUpdate}
+              onRestartToInstallUpdate={handleRestartToInstallUpdate}
+              onOpenDownloadPage={handleOpenReleaseDownloadPage}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <UpdateDialog
+        state={updateState}
+        isOpen={isUpdateDialogOpen}
+        onClose={() => setIsUpdateDialogOpen(false)}
+        onDownloadUpdate={handleDownloadUpdate}
+        onRestartToInstallUpdate={handleRestartToInstallUpdate}
+        onOpenDownloadPage={handleOpenReleaseDownloadPage}
+      />
+
       {pendingMeasurementResult ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/35 p-6">
           <form className="w-full max-w-md rounded-lg border border-border bg-white p-5 shadow-lg" role="dialog" aria-modal="true" aria-labelledby="save-measurement-title" onSubmit={handleMeasurementSave}>
@@ -1914,6 +2063,67 @@ function formatDistanceMeters(distanceMeters: number) {
   }
 
   return `${Math.round(distanceMeters)} m`;
+}
+
+function buildPinnedSummary({
+  selectedMarkerRecord,
+  selectedMeasurementRecord,
+  pendingMarker,
+  pendingMeasurementResult,
+  poiPreview,
+  coordinateEditMarkerId,
+  isMarkerCreationMode,
+  isDistanceMeasurementMode,
+}: {
+  selectedMarkerRecord: MarkerRecord | null;
+  selectedMeasurementRecord: MeasurementRecord | null;
+  pendingMarker: PendingMarkerCreation | null;
+  pendingMeasurementResult: MapDistanceMeasurementResult | null;
+  poiPreview: MapPoiPreview | null;
+  coordinateEditMarkerId: string | null;
+  isMarkerCreationMode: boolean;
+  isDistanceMeasurementMode: boolean;
+}) {
+  const modeLabel = coordinateEditMarkerId
+    ? "编辑坐标"
+    : isMarkerCreationMode || pendingMarker
+      ? "添加点位"
+      : isDistanceMeasurementMode || pendingMeasurementResult
+        ? "测距"
+        : "浏览";
+
+  const objectLabel = selectedMeasurementRecord
+    ? `测距：${selectedMeasurementRecord.name}`
+    : pendingMeasurementResult
+      ? `待保存测距：${formatDistanceMeters(pendingMeasurementResult.totalDistanceMeters)}`
+      : pendingMarker
+        ? "待保存点位"
+        : poiPreview
+          ? `POI：${poiPreview.name}`
+          : selectedMarkerRecord
+            ? `点位：${selectedMarkerRecord.name}`
+            : "无选中";
+
+  return { modeLabel, objectLabel };
+}
+
+function isMapWorkspacePanel(panel: WorkspacePanel) {
+  return panel === "overview" || panel === "markers" || panel === "search";
+}
+
+function normalizeAppUpdateError(error: unknown): AppUpdateError {
+  if (error && typeof error === "object" && "code" in error && "message" in error && typeof error.message === "string") {
+    return {
+      code: typeof error.code === "string" ? (error.code as AppUpdateError["code"]) : "UNKNOWN",
+      message: error.message,
+    };
+  }
+
+  if (error instanceof Error) {
+    return { code: "UNKNOWN", message: error.message };
+  }
+
+  return { code: "UNKNOWN", message: "更新失败，请稍后重试或前往下载页面手动安装。" };
 }
 
 export default App;

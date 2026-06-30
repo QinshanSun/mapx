@@ -166,8 +166,8 @@ Parallelization notes:
 - Marker multi-select and batch operations
 - Dark mode
 - i18n
-- Auto update
-- Code signing, notarization, and release signing
+- Auto update is handled by the independent `V1 Auto Update` milestone instead of the original core V1 feature milestones.
+- macOS notarization and Windows code signing
 - Custom data directory
 - Full backup restore UI
 - GitHub Projects board fields
@@ -1384,7 +1384,7 @@ Depends on: QA-002, FND-002
 
 Scope:
 - 在 CI 中验证 macOS 和 Windows Tauri build。
-- 不做签名、公证或自动发布。
+- 自动更新发布能力由 `V1 Auto Update` milestone 承接；macOS notarization 和 Windows code signing 仍不属于此 issue。
 
 Acceptance Criteria:
 - macOS build job 通过。
@@ -1395,7 +1395,7 @@ Validation:
 - GitHub Actions macOS/Windows job 成功。
 
 Out of Scope:
-- release artifact 签名和发布。
+- signed updater artifact 发布由 `V1 Auto Update` milestone 承接。
 
 ### QA-004: Add E2E smoke test harness
 

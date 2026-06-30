@@ -41,12 +41,8 @@ export const createWorkspaceState: StateCreator<WorkspaceState> = (set) => ({
         nextState.activePanel = "overview";
       }
 
-      if (actionId === "view.settings") {
+      if (actionId === "view.settings" || actionId === "help.about") {
         nextState.activePanel = "settings";
-      }
-
-      if (actionId === "help.about") {
-        nextState.activePanel = "about";
       }
 
       return nextState;
@@ -78,8 +74,8 @@ function buildActionMessage(actionId: WorkspaceActionId, selectedMarkerId: strin
     case "view.overview":
       return "已切换到项目概览。";
     case "view.settings":
-      return "已切换到设置入口占位。";
+      return "已打开设置。";
     case "help.about":
-      return "已切换到关于信息占位。";
+      return "关于信息已移入设置。";
   }
 }

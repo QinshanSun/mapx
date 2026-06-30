@@ -61,6 +61,8 @@ fn structured_error_example(kind: &str) -> Result<&'static str, AppError> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             logging::log_app_event(app.handle(), "startup", &[]);
             let bootstrap_result =
@@ -108,8 +110,10 @@ pub fn run() {
             settings::open_backup_directory,
             settings::open_data_directory,
             settings::open_log_directory,
+            settings::open_release_download_page,
             logging::record_command_error,
             logging::record_map_load_failure,
+            settings::update_auto_update_check_on_startup,
             settings::update_baidu_ak,
             settings::update_default_city,
             projects::create_project,

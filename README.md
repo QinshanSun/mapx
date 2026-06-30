@@ -52,7 +52,7 @@ Implemented foundation:
 - Dirty-state guard with custom save/discard/cancel confirmation before conflicting marker actions
 - Right-side project overview when no marker is selected, with counts, recent markers, and quick actions
 - Basic scripts for development, typechecking, linting, frontend tests, frontend build, and Tauri build
-- GitHub Actions release workflow for unsigned macOS `.dmg` and Windows `.msi` pre-releases from `vX.Y.Z` tags
+- GitHub Actions release workflow for stable releases with unsigned manual installers and signed updater artifacts
 
 Last verified locally:
 
@@ -68,7 +68,7 @@ Last verified locally:
 - GitHub Actions CI on `main`
 - `npm audit --omit=dev`
 
-Note: the full default `npm run tauri:build` currently builds the release binary and `.app`, then fails during local DMG bundling. Installer verification remains part of later packaging/build validation work.
+Note: packaged auto-update validation still requires real macOS and Windows release artifacts. Use [docs/auto-update-qa.md](docs/auto-update-qa.md) before closing updater QA.
 
 ## Recommended Next Steps
 

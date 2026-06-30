@@ -11,6 +11,12 @@ const commandEnv = {
   ...process.env,
   PATH: [path.join(homedir(), ".cargo", "bin"), process.env.PATH].filter(Boolean).join(path.delimiter),
 };
+const forwardedArgs = process.argv.slice(2);
+
+if (forwardedArgs.length > 0) {
+  run("tauri", ["build", ...forwardedArgs], { cwd: repoRoot });
+  process.exit(0);
+}
 
 if (platform() !== "darwin") {
   run("tauri", ["build"], { cwd: repoRoot });
@@ -27,7 +33,7 @@ const dmgDir = path.join(bundleRoot, "dmg");
 const dmgPath = path.join(dmgDir, `MapX_${version}_${targetArch}.dmg`);
 const dmgSourceDir = path.join(tmpdir(), `mapx-dmg-source-${process.pid}`);
 
-run("tauri", ["build", "--ci", "--no-sign", "--bundles", "app"], { cwd: repoRoot });
+run("tauri", ["build", "--ci", "--bundles", "app"], { cwd: repoRoot });
 
 rmSync(dmgSourceDir, { recursive: true, force: true });
 rmSync(dmgPath, { force: true });
