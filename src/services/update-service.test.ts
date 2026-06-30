@@ -91,5 +91,9 @@ describe("update service", () => {
       code: "OFFLINE",
       message: expect.stringContaining("GitHub"),
     });
+    expect(mapUpdateError(new Error("error sending request for url (https://github.com/QinshanSun/mapx/releases/latest/download/latest.json)"))).toMatchObject({
+      code: "OFFLINE",
+      message: expect.stringContaining("GitHub"),
+    });
   });
 });

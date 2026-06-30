@@ -93,7 +93,7 @@ export function mapUpdateError(error: unknown): AppUpdateError {
     return createUpdateError("SIGNATURE_INVALID", "更新签名校验失败，已停止安装。请从下载页面手动安装可信版本。");
   }
 
-  if (lowerMessage.includes("network") || lowerMessage.includes("offline") || lowerMessage.includes("dns") || lowerMessage.includes("timed out")) {
+  if (lowerMessage.includes("network") || lowerMessage.includes("offline") || lowerMessage.includes("dns") || lowerMessage.includes("timed out") || lowerMessage.includes("sending request") || lowerMessage.includes("error trying to connect") || lowerMessage.includes("couldn't connect") || lowerMessage.includes("connection refused") || lowerMessage.includes("tls handshake")) {
     return createUpdateError("OFFLINE", "无法连接到 GitHub 更新服务，请检查网络后重试。");
   }
 
