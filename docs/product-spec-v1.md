@@ -17,7 +17,7 @@ The V1 goal is to make project point management reliable and comfortable before 
 - Theme: light mode only
 - App model: single-window desktop app
 - System tray/background running: not supported in V1
-- Auto update: not supported in V1; users manually download new installers
+- Auto update: handled by the independent `V1 Auto Update` milestone using signed updater artifacts; manual installer downloads remain as fallback
 
 ## Technology Stack
 
@@ -64,8 +64,7 @@ The V1 goal is to make project point management reliable and comfortable before 
 - Marker multi-select or batch operations
 - Dark mode
 - i18n
-- Auto update
-- Code signing, notarization, and release signing
+- macOS notarization and Windows code signing
 - Custom data directory
 - Full backup restore UI
 
@@ -631,7 +630,7 @@ Expected checks:
 - macOS build verification
 - Windows build verification
 
-Release signing, macOS notarization, Windows code signing, and automatic update publishing are deferred.
+The independent `V1 Auto Update` milestone covers signed updater artifacts, startup/manual update checks, and packaged-app update validation. macOS notarization and Windows code signing remain deferred; unsigned manual installers stay available as a fallback.
 
 ## Acceptance Criteria
 

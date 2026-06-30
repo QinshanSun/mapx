@@ -2,6 +2,7 @@ export interface FirstLaunchSettings {
   completed: boolean;
   defaultCity: string;
   baiduAk: string | null;
+  autoUpdateCheckOnStartup: boolean;
 }
 
 export interface AppInfo {

@@ -64,22 +64,36 @@ try {
     await waitForText(cdp, "定位");
     await waitForSelector(cdp, '[data-testid="map-canvas-action-settings"]');
 
+    await clickByTestId(cdp, "nav-projects");
+    await waitForText(cdp, "项目列表");
     await clickByAriaLabel(cdp, "打开新建项目表单");
+    await waitForSelector(cdp, 'input[placeholder="新项目名称"]');
     await setInputByPlaceholder(cdp, "新项目名称", "Smoke 项目");
     await clickSubmitInFormWithPlaceholder(cdp, "新项目名称");
     await waitForText(cdp, "Smoke 项目");
 
-    await clickButtonByText(cdp, "设置");
+    await clickByTestId(cdp, "nav-settings");
+    await waitForText(cdp, "本地数据");
+    await clickButtonByText(cdp, "本地数据");
     await waitForText(cdp, "本地目录");
     await waitForText(cdp, "备份目录：浏览器预览模式");
     await waitForText(cdp, "最近备份：暂无备份");
     await waitForText(cdp, "打开备份目录");
     await waitForText(cdp, "打开日志目录");
+    await clickButtonByText(cdp, "关于");
+    await waitForText(cdp, "应用更新");
+    await waitForText(cdp, "启动时自动检查更新");
+    await waitForText(cdp, "检查更新");
+    await waitForText(cdp, "下载页面");
+    checks.push("update-settings-visible");
 
     if (BAIDU_MAP_AK) {
+      await clickButtonByText(cdp, "地图服务");
       await setInputById(cdp, "settings-baidu-ak", BAIDU_MAP_AK);
       await clickButtonByText(cdp, "保存 AK");
       await waitForText(cdp, "百度 AK：已配置");
+      await clickByAriaLabel(cdp, "关闭设置");
+      await clickByTestId(cdp, "nav-map");
       await waitForSelector(cdp, '[data-testid="map-zoom-in"]', 45_000);
 
       await clickButtonByText(cdp, "测距");
@@ -113,6 +127,9 @@ try {
       await clickButtonByText(cdp, "删除测距");
       await waitForText(cdp, "暂无测距记录。");
       checks.push("measurement-ui-create-save-edit-delete");
+    } else {
+      await clickByAriaLabel(cdp, "关闭设置");
+      await clickByTestId(cdp, "nav-map");
     }
 
     await clickButtonByText(cdp, "中心点");
@@ -378,7 +395,8 @@ async function waitForExpression(cdp, expression, timeoutMs, label) {
     await delay(250);
   }
 
-  throw new Error(`Timed out waiting for ${label}`);
+  const body = await evaluate(cdp, "document.body ? document.body.innerText.slice(0, 1200) : ''");
+  throw new Error(`Timed out waiting for ${label}\nVisible text:\n${body.value ?? ""}`);
 }
 
 async function clickByAriaLabel(cdp, ariaLabel) {
@@ -391,6 +409,22 @@ async function clickByAriaLabel(cdp, ariaLabel) {
       return true;
     })()`,
   );
+
+  await delay(250);
+}
+
+async function clickByTestId(cdp, testId) {
+  await evaluateOrThrow(
+    cdp,
+    `(() => {
+      const element = document.querySelector('[data-testid=${JSON.stringify(testId)}]');
+      if (!element) throw new Error('Missing test id: ${testId}');
+      element.click();
+      return true;
+    })()`,
+  );
+
+  await delay(250);
 }
 
 async function clickButtonByText(cdp, text) {
@@ -404,6 +438,8 @@ async function clickButtonByText(cdp, text) {
       return true;
     })()`,
   );
+
+  await delay(250);
 }
 
 async function setInputById(cdp, id, value) {
