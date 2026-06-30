@@ -296,21 +296,17 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path updater-fragments | Out-Null
           $msi = Get-ChildItem -Path src-tauri/target/release/bundle/msi -Filter *.msi | Select-Object -First 1
-          $updater = Get-ChildItem -Path src-tauri/target/release/bundle/msi -Filter *.msi.zip | Select-Object -First 1
-          if (-not $updater) {
-            $updater = Get-ChildItem -Path src-tauri/target/release/bundle/msi -Filter *.zip | Select-Object -First 1
-          }
-          if (-not $msi -or -not $updater) {
-            Write-Error "Missing Windows MSI or updater artifact"
+          if (-not $msi) {
+            Write-Error "Missing Windows MSI artifact"
           }
 
-          $signature = Get-Item "$($updater.FullName).sig"
-          gh release upload "$env:TAG_NAME" $msi.FullName $updater.FullName $signature.FullName --clobber
+          $signature = Get-Item "$($msi.FullName).sig"
+          gh release upload "$env:TAG_NAME" $msi.FullName $signature.FullName --clobber
 
           node tools/create-updater-fragment.mjs `
             --repo "$env:REPOSITORY" `
             --tag "$env:TAG_NAME" `
-            --artifact $updater.FullName `
+            --artifact $msi.FullName `
             --signature $signature.FullName `
             --target "windows-x86_64-msi" `
             --target "windows-x86_64" `
